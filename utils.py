@@ -64,15 +64,7 @@ def create_batch_dataset(INDEX, W, T, problem='value', fast = False):
                 company_id += 1
             
             
-            """ "Stock Split removed"
-            stock_split_dates = df['Stock Splits'].notnull()
-            for i in range(len(df)):
-                if stock_split_dates[i]:
-                    split = str(df.iloc[i]['Stock Splits'])
-                    split = int(split.split(":")[0]) / int(split.split(":")[1])
-                    df.iloc[i, df.columns.get_loc('Stock Splits')] = split
-
-            df = df.fillna(0) """
+        
             
             if df.shape[0] > 2600:
                 df = df.iloc[-2600:]
