@@ -1,0 +1,91 @@
+sector	description	node_list
+20	Industrials	PCAR	CSX	ODFL	FAST	CPRT	VRSK	CTAS	HON
+2010	Capital Goods	PCAR	FAST	HON
+201050	Industrial Conglomerates	HON
+20105010	Industrial Conglomerates	HON
+201060	Machinery	PCAR
+20106010	Construction Machinery & Heavy Trucks	PCAR
+201070	Trading Companies & Distributors	FAST
+20107010	Trading Companies & Distributors	FAST
+2020	Commercial  & Professional Services	CPRT	VRSK	CTAS
+202010	Commercial Services & Supplies	CPRT	CTAS
+20201070	Diversified Support Services	CPRT	CTAS
+202020	Professional Services	VRSK
+20202020	Research & Consulting Services	VRSK
+2030	Transportation	CSX	ODFL
+203040	Road & Rail	CSX	ODFL
+20304010	Railroads	CSX
+20304020	Trucking	ODFL
+25	Consumer Discretionary	LULU	TSLA	DLTR	ORLY	ROST	SBUX	AMZN	MAR	BKNG	EBAY	MELI
+2510	Automobiles & Components	TSLA
+251020	Automobiles	TSLA
+25102010	Automobile Manufacturers	TSLA
+2520	Consumer Durables & Apparel	LULU
+252030	Textiles, Apparel & Luxury Goods	LULU
+25203010	Apparel, Accessories & Luxury Goods	LULU
+2530	Consumer Services	SBUX	MAR
+253010	Hotels, Restaurants & Leisure	SBUX	MAR
+25301020	Hotels, Resorts & Cruise Lines	MAR
+25301040	Restaurants	SBUX
+2550	Retailing	DLTR	ORLY	ROST	AMZN	BKNG	EBAY	MELI
+255020	Internet & Direct Marketing Retail	AMZN	BKNG	EBAY	MELI
+25502020	Internet & Direct Marketing Retail	AMZN	BKNG	EBAY	MELI
+255030	Multiline Retail	DLTR
+25503020	General Merchandise Stores	DLTR
+255040	Specialty Retail	ORLY	ROST
+25504010	Apparel Retail	ROST
+25504050	Automotive Retail	ORLY
+30	Consumer Staples	KHC	MDLZ	PEP	MNST	KDP	COST	WBA
+3010	Food & Staples Retailing	COST	WBA
+301010	Food & Staples Retailing	COST	WBA
+30101010	Drug Retail	WBA
+30101040	Hypermarkets & Super Centers	COST
+3020	Food, Beverage & Tobacco	KHC	MDLZ	PEP	MNST	KDP
+302010	Beverages	PEP	MNST	KDP
+30201030	Soft Drinks	PEP	MNST	KDP
+302020	Food Products	KHC	MDLZ
+30202030	Packaged Foods & Meats	KHC	MDLZ
+35	Health Care	REGN	VRTX	IDXX	AMGN	BIIB	GILD	MRNA	SGEN	ILMN	ALGN	DXCM	ISRG
+3510	Health Care Equipment & Services	IDXX	ALGN	DXCM	ISRG
+351010	Health Care Equipment & Supplies	IDXX	ALGN	DXCM	ISRG
+35101010	Health Care Equipment	IDXX	DXCM	ISRG
+35101020	Health Care Supplies	ALGN
+3520	Pharmaceuticals, Biotechnology & Life Sciences	REGN	VRTX	AMGN	BIIB	GILD	MRNA	SGEN	ILMN
+352010	Biotechnology	REGN	VRTX	AMGN	BIIB	GILD	MRNA	SGEN
+35201010	Biotechnology	REGN	VRTX	AMGN	BIIB	GILD	MRNA	SGEN
+352030	Life Sciences Tools & Services	ILMN
+35203010	Life Sciences Tools & Services	ILMN
+45	Information Technology	AMAT	LRCX	CSCO	FTNT	AAPL	AMD	ADI	AVGO	ENPH	INTC	MCHP	MU	NVDA	QCOM	SWKS	TXN	KLAC	CTSH	VRSN	ADBE	ADSK	CRWD	DDOG	DOCU	PANW	WDAY	ZM	ZS	ANSS	CDNS	INTU	MSFT	SPLK	SNPS	ADP	FISV	PYPL	PAYX
+4510	Software & Services	FTNT	CTSH	VRSN	ADBE	ADSK	CRWD	DDOG	DOCU	PANW	WDAY	ZM	ZS	ANSS	CDNS	INTU	MSFT	SPLK	SNPS	ADP	FISV	PYPL	PAYX
+451020	IT Services	CTSH	VRSN	ADP	FISV	PYPL	PAYX
+45102010	IT Consulting & Other Services	CTSH
+45102020	Data Processing & Outsourced Services	ADP	FISV	PYPL	PAYX
+45102030	Internet Services & Infrastructure	VRSN
+451030	Software	FTNT	ADBE	ADSK	CRWD	DDOG	DOCU	PANW	WDAY	ZM	ZS	ANSS	CDNS	INTU	MSFT	SPLK	SNPS
+45103010	Application Software	ADBE	ADSK	DDOG	DOCU	WDAY	ZM	ANSS	CDNS	INTU	SPLK	SNPS
+45103020	Systems Software	FTNT	CRWD	PANW	ZS	MSFT
+4520	Technology Hardware & Equipment	CSCO	AAPL
+452010	Communications Equipment	CSCO
+45201020	Communications Equipment	CSCO
+452020	Technology Hardware, Storage & Peripherals	AAPL
+45202030	Technology Hardware, Storage & Peripherals	AAPL
+4530	Semiconductors & Semiconductor Equipment	AMAT	LRCX	AMD	ADI	AVGO	ENPH	INTC	MCHP	MU	NVDA	QCOM	SWKS	TXN	KLAC
+453010	Semiconductors & Semiconductor Equipment	AMAT	LRCX	AMD	ADI	AVGO	ENPH	INTC	MCHP	MU	NVDA	QCOM	SWKS	TXN	KLAC
+45301010	Semiconductor Equipment 	AMAT	LRCX	ENPH	KLAC
+45301020	Semiconductors	AMD	ADI	AVGO	INTC	MCHP	MU	NVDA	QCOM	SWKS	TXN
+50	Communication Services	TMUS	SIRI	CHTR	CMCSA	GOOGL	MTCH	ATVI	EA	NFLX
+5010	Telecommunication Services	TMUS
+501020	Wireless Telecommunication Services	TMUS
+50102010	Wireless Telecommunication Services	TMUS
+5020	Media & Entertainment	SIRI	CHTR	CMCSA	GOOGL	MTCH	ATVI	EA	NFLX
+502010	Media	SIRI	CHTR	CMCSA
+50201030	Cable & Satellite	SIRI	CHTR	CMCSA
+502020	Entertainment	ATVI	EA	NFLX
+50202010	Movies & Entertainment	NFLX
+50202020	Interactive Home Entertainment	ATVI	EA
+502030	Interactive Media & Services	GOOGL	MTCH
+50203010	Interactive Media & Services	GOOGL	MTCH
+55	Utilities	AEP	EXC	XEL
+5510	Utilities	AEP	EXC	XEL
+551010	Electric Utilities	AEP	EXC	XEL
+55101010	Electric Utilities	AEP	EXC	XEL
