@@ -23,7 +23,7 @@ from utils import (mean_absolute_percentage_error,
                    load_or_create_dataset_graph,
                    mean_square_error, root_mean_square_error)
 
-from models.models import Transformer, BILSTM, NLinear, Transformer_Ranking
+from models.models import Transformer_Ranking
 
 from torch.nn import Linear, ReLU, Dropout
 from torch_geometric.nn import Sequential, GCNConv, JumpingKnowledge
@@ -32,7 +32,7 @@ from torch_geometric.nn import global_mean_pool
 from random import randint
 import wandb
 
-GPU = 1
+GPU = 0
 LR = 0.0001
 BS = 128
 W = 20
@@ -48,12 +48,12 @@ MAX_EPOCH = 50
 USE_POS_ENCODING = False
 USE_GRAPH = True
 HYPER_GRAPH = True
-USE_KG = True
+USE_KG = False
 PREDICTION_PROBLEM = 'value'
 RUN = randint(1, 100000)
 
-#tau_choices = [0, 4, 19, 49, 99, 124, 249]
-tau_choices = [19, 49, 99, 124, 249]
+tau_choices = [50, 75, 100, 125, 250]
+tau_positions = [1, 5, 20, 50, 75, 100, 125, 250]
 
 MODEL = "ours"
 
@@ -78,14 +78,13 @@ if LOG:
 
     wandb.init(project="KG-Stock-Graph"+str(T), config=wandb_config)
 
-INDEX = "nasdaq100" 
+INDEX = "sp500" 
 
 save_path = "data/pickle/"+INDEX+"/graph_data-W"+str(W)+"-T"+str(T)+"_"+str(PREDICTION_PROBLEM)+".pkl"
 
 
 dataset, company_to_id, graph, hyper_data = load_or_create_dataset_graph(INDEX=INDEX, W=W, T=T, save_path=save_path, problem=PREDICTION_PROBLEM, fast=FAST)
-with open('./kg/profile_and_relationship/wikidata/'+INDEX+'_relations_kg.pkl', 'rb') as f:
-    relation_kg = pickle.load(f)['kg']
+
 
 num_nodes = len(company_to_id.keys())
 
@@ -113,9 +112,13 @@ else:
     }
 
 if USE_KG:
+    with open('./kg/profile_and_relationship/wikidata/'+INDEX+'_relations_kg.pkl', 'rb') as f:
+        relation_kg = pickle.load(f)['kg']
     head, relation, tail = relation_kg[0], relation_kg[1], relation_kg[2]
     head, relation, tail = head.to(device), relation.to(device), tail.to(device)
     relation_kg = (head, relation, tail)
+else:
+    relation_kg = None
 
 def rank_loss(prediction, ground_truth, base_price):
     all_one = torch.ones(prediction.shape[0], 1, dtype=torch.float32).to(device)
@@ -187,9 +190,9 @@ def predict(loader, desc):
         y_hat = y_hat.squeeze()
 
 
-        true_return_ratio = yb.squeeze() / base_price.squeeze()
+        true_return_ratio = yb.squeeze() 
         #print(true_return_ratio.min(), true_return_ratio.max())
-        #print(y_hat.min(), y_hat.max()) #87
+        #print(y_hat.min(), y_hat.max()) 
         
         loss = F.mse_loss(y_hat, true_return_ratio) 
 
@@ -251,6 +254,9 @@ def predict(loader, desc):
 
 
 for tau in tau_choices:
+    tau_pos = tau_positions.index(tau)
+
+    print("Tau: ", tau, "Tau Position: ", tau_pos)
 
     # ----------- Batching the data -----------
     def collate_fn(instn):
@@ -266,13 +272,12 @@ for tau in tau_choices:
         company = torch.Tensor(np.array([x[5] for x in instn])).long()
         
         # Shape: Companies x 1
-        target = torch.Tensor(np.array([x[7][3] for x in instn]))
+        target = torch.Tensor(np.array([x[7][tau_pos] for x in instn]))
 
         # Shape: Companies x 1
         scale = torch.Tensor(np.array([x[8] for x in instn]))
 
-        window_last_close = df[:, -1, 3].unsqueeze(dim=1)
-        movement = target >= window_last_close
+        movement = target >= 1
 
         return (df, company, target, scale, movement.int())
 
@@ -282,12 +287,12 @@ for tau in tau_choices:
     test_mean_move, test_mean_mape, test_mean_mae = 0, 0, 0
 
     test_mean_acc = torch.zeros(4).to(device)
-    print(len(dataset[0]))
+    print(len(dataset))
     for phase in range(1, 26):
         print("Phase: ", phase)
-        train_loader    = DataLoader(dataset[0][start_time:start_time+250], 1, shuffle=True, collate_fn=collate_fn, num_workers=1)
-        val_loader      = DataLoader(dataset[0][start_time+250:start_time+300], 1, shuffle=True, collate_fn=collate_fn)
-        test_loader     = DataLoader(dataset[0][start_time+300:start_time+400], 1, shuffle=False, collate_fn=collate_fn)
+        train_loader    = DataLoader(dataset[start_time:start_time+250], 1, shuffle=True, collate_fn=collate_fn, num_workers=1)
+        val_loader      = DataLoader(dataset[start_time+250:start_time+300], 1, shuffle=True, collate_fn=collate_fn)
+        test_loader     = DataLoader(dataset[start_time+300:start_time+400], 1, shuffle=False, collate_fn=collate_fn)
 
         start_time += 100
 
@@ -345,3 +350,6 @@ for tau in tau_choices:
     for index, k in enumerate(top_k_choice):
         print("[Mean - {0}] Top {5} {1} {2} {3} {4} {6}".format("TESTING", test_mean_rr[index]/phase, test_mean_trr[index]/phase, test_mean_err[index]/phase, test_mean_rrr[index]/phase, k, test_mean_acc[index]/phase))
     print("[Mean - {0}] {1} {2} {3}".format("TESTING", test_mean_move/phase, test_mean_mape/phase, test_mean_mae/phase))
+
+
+
