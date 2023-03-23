@@ -13,8 +13,8 @@ def create_hypergraph(index):
     for filename in os.listdir(directory):
         f = os.path.join(directory, filename)
         if os.path.isfile(f):
-            sector, name, ticker, start, end = filename.split("-")
-            ticker_list[ticker] = [name, sector]
+            ticker, name = filename.split("-")
+            ticker_list[ticker] = [name]
 
     sector_map = {}
     for index, row in df.iterrows():
@@ -48,4 +48,4 @@ def create_hypergraph(index):
 
     return True
 
-create_hypergraph("nasdaq100")
+create_hypergraph("sp500")

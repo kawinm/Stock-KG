@@ -8,8 +8,6 @@ from torch_geometric.nn import global_mean_pool
 
 from torchkge.models.translation import TorusEModel
 
-from .embed import DataEmbedding
-
 class PositionalEncoding(nn.Module):
 
     def __init__(self, d_model, dropout, max_len):
@@ -60,7 +58,6 @@ class Transformer(nn.Module):
         self.is_pos = USE_POS_ENCODING
         self.time_steps = T
 
-        self.embed = DataEmbedding(T, D_MODEL)
 
         self.use_graph = USE_GRAPH
         self.is_hyper_graph = HYPER_GRAPH
@@ -278,7 +275,7 @@ class Transformer_Ranking(nn.Module):
         self.is_pos = USE_POS_ENCODING
         self.time_steps = T
 
-        self.embed = DataEmbedding(T, D_MODEL)
+        
 
         self.use_graph = USE_GRAPH
         self.is_hyper_graph = HYPER_GRAPH

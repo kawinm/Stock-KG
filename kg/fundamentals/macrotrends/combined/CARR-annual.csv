@@ -1,0 +1,7 @@
+Date,current-ratio-annual,long-term-debt-capital-annual,debt-equity-ratio-annual,gross-margin-annual,operating-margin-annual,ebit-margin-annual,ebitda-margin-annual,pre-tax-profit-margin-annual,net-profit-margin-annual,asset-turnover-annual,inventory-turnover-annual,receiveable-turnover-annual,days-sales-in-receivables-annual,roe-annual,return-on-tangible-equity-annual,roa-annual,roi-annual,book-value-per-share-annual,operating-cash-flow-per-share-annual,free-cash-flow-per-share-annual
+2022-12-31,1.6378,0.5187,1.0948,26.7568,22.1096,22.1096,23.9704,21.0176,17.3057,0.7828,5.6655,7.2083,50.6364,44.3784,-110.515,13.7392,21.3613,9.6757,-0.4887,-0.5123
+2021-12-31,1.7213,0.5728,1.3668,29.0108,12.8317,12.8317,14.4715,11.6431,8.0726,0.7876,7.4279,8.578,42.5506,23.978,-61.5413,6.4993,10.2427,8.2198,0.5903,0.5585
+2020-12-31,1.6681,0.6041,1.5547,29.2679,17.6616,17.6616,19.5864,16.3554,11.3543,0.6957,7.5795,6.2769,58.1499,30.4956,-43.6277,7.9943,12.0742,7.5798,-0.4594,-0.5333
+2019-12-31,1.3334,0.0056,0.0221,29.1219,13.3867,13.3867,15.187,14.3594,11.3715,0.8305,9.9017,6.8261,53.4711,14.929,62.1396,9.618,14.8447,,0.0093,0.0323
+2018-12-31,1.3679,,,29.4438,19.2291,19.2291,21.1166,20.313,14.4549,0.8701,9.7909,7.0759,51.5832,19.4057,86.3693,12.7387,19.4057,,2.3724,2.0688
+2017-12-31,,,,29.1063,17.0091,17.0091,19.0973,17.1438,6.8878,,,,,,,,,,0.0,0.0
