@@ -23,7 +23,7 @@ from utils import (mean_absolute_percentage_error,
                    load_or_create_dataset_graph,
                    mean_square_error, root_mean_square_error)
 
-from models.models import Transformer_Ranking
+from models.models import Transformer_Ranking, Saturation
 
 from torch.nn import Linear, ReLU, Dropout
 from torch_geometric.nn import Sequential, GCNConv, JumpingKnowledge
@@ -52,12 +52,12 @@ USE_KG = False
 PREDICTION_PROBLEM = 'value'
 RUN = randint(1, 100000)
 
-tau_choices = [50, 75, 100, 125, 250]
+tau_choices = [50, 75, 125, 250]
 tau_positions = [1, 5, 20, 50, 75, 100, 125, 250]
 
 MODEL = "ours"
 
-print("Experiment SP500 W=20 Run ")
+print("Experiment SP500 P25 W=20 Run 1 Without Relation KG")
 FAST = False
 if FAST == True:
     LOG = False
@@ -80,7 +80,7 @@ if LOG:
 
 INDEX = "sp500" 
 
-save_path = "data/pickle/"+INDEX+"/graph_data-W"+str(W)+"-T"+str(T)+"_"+str(PREDICTION_PROBLEM)+".pkl"
+save_path = "data/pickle/"+INDEX+"/graph_data-P25-W"+str(W)+"-T"+str(T)+"_"+str(PREDICTION_PROBLEM)+".pkl"
 
 
 dataset, company_to_id, graph, hyper_data = load_or_create_dataset_graph(INDEX=INDEX, W=W, T=T, save_path=save_path, problem=PREDICTION_PROBLEM, fast=FAST)
@@ -120,13 +120,13 @@ if USE_KG:
 else:
     relation_kg = None
 
-def rank_loss(prediction, ground_truth, base_price):
+def rank_loss(prediction, ground_truth):
     all_one = torch.ones(prediction.shape[0], 1, dtype=torch.float32).to(device)
     prediction = prediction.unsqueeze(dim=1)
     ground_truth = ground_truth.unsqueeze(dim=1)
     #print(prediction.shape, ground_truth.shape, base_price.shape)
     return_ratio = prediction - 1
-    true_return_ratio = (ground_truth - base_price) / base_price
+    true_return_ratio = ground_truth - 1
 
     pre_pw_dif = torch.sub(
         return_ratio @ all_one.t(),                  # C x C
@@ -149,21 +149,22 @@ def evaluate(prediction, ground_truth, K):
 
     #print("True top k: ", torch.topk(true_return_ratio.squeeze(), k=3, dim=0))
     #print("Predicted top k: ", torch.topk(return_ratio.squeeze(), k=3, dim=0))
-    random = torch.randint(0, prediction.shape[0]-1, (K,))
-    obtained_return_ratio = true_return_ratio[torch.topk(return_ratio.squeeze(), k=K, dim=0)[1]].mean()
+    
+    obtained_return_ratio = true_return_ratio[torch.topk(return_ratio, k=K, dim=0)[1]].mean()
 
     #return_ratio = -1*return_ratio
     #obtained_return_ratio += true_return_ratio[torch.topk(return_ratio.squeeze(), k=K, dim=0)[1]].mean()
     #obtained_return_ratio /= 2
 
-    target_obtained_return_ratio = torch.topk(true_return_ratio.squeeze(), k=K, dim=0)[0].mean()
-
-    a_cat_b, counts = torch.cat([torch.topk(return_ratio.squeeze(), k=K, dim=0)[1], torch.topk(true_return_ratio.squeeze(), k=K, dim=0)[1]]).unique(return_counts=True)
-    accuracy = a_cat_b[torch.where(counts.gt(1))].shape[0] / K
+    target_obtained_return_ratio = torch.topk(true_return_ratio, k=K, dim=0)[0].mean()
 
     expected_return_ratio = torch.topk(return_ratio.squeeze(), k=K, dim=0)[0].mean()
 
+    random = torch.randint(0, prediction.shape[0]-1, (K,))
     random_return_ratio = true_return_ratio[random].mean()
+
+    a_cat_b, counts = torch.cat([torch.topk(return_ratio.squeeze(), k=K, dim=0)[1], torch.topk(true_return_ratio.squeeze(), k=K, dim=0)[1]]).unique(return_counts=True)
+    accuracy = a_cat_b[torch.where(counts.gt(1))].shape[0] / K
 
     return obtained_return_ratio, target_obtained_return_ratio, expected_return_ratio, random_return_ratio, accuracy
 
@@ -172,31 +173,37 @@ top_k_choice = [1, 3, 5, 10]
 
 # ----------- Main Training Loop -----------
 def predict(loader, desc):
-    T = 1
-    epoch_loss, mape, move_loss, rmse_returns_loss = 0, 0, 0, 0
-    last_loss, mae_loss = torch.zeros(T), 0
+    epoch_loss, mape, move_loss, rmse_returns_loss, mae_loss = 0, 0, 0, 0, 0
     mini, maxi = float("infinity"), 0
-
     rr, true_rr, exp_rr, ran_rr, accuracy = torch.zeros(4).to(device), torch.zeros(4).to(device), torch.zeros(4).to(device), torch.zeros(4).to(device), torch.zeros(4).to(device)
-    #tqdm_loader = tqdm(loader)  
+    
+    #tqdm_loader = tqdm(loader) 
+      
     for xb, company, yb, scale, move_target in loader:
-        xb = xb.to(device) 
-        base_price = xb[:, -1, 3]
-        yb = yb.to(device) 
-        scale = scale.to(device)
+        xb      = xb.to(device) 
+        yb      = yb.to(device) 
+        scale   = scale.to(device)
         move_target = move_target.to(device)
 
         y_hat, kg_loss, hold_pred = model(xb, yb, graph_data, relation_kg)
         y_hat = y_hat.squeeze()
-
-
         true_return_ratio = yb.squeeze() 
-        #print(true_return_ratio.min(), true_return_ratio.max())
-        #print(y_hat.min(), y_hat.max()) 
+
+        # store y_hat and yb for plotting
         
-        loss = F.mse_loss(y_hat, true_return_ratio) 
 
+        #print("TRR: ", float(true_return_ratio.min()), float(true_return_ratio.max()))
+        #print("Pred: ", float(y_hat.min()), float(y_hat.max()))
 
+        loss = F.mse_loss(y_hat, true_return_ratio) #+ rank_loss(y_hat, true_return_ratio)
+        if USE_KG:
+            loss += kg_loss.mean()
+
+        if model.training:
+            opt_c.zero_grad()
+            loss.backward()
+            opt_c.step()
+        
         for index, k in enumerate(top_k_choice):
             crr, ctrr, cerr, crrr, cacc = evaluate(y_hat, true_return_ratio, k)
             ran_rr[index] += crrr
@@ -206,21 +213,12 @@ def predict(loader, desc):
             accuracy[index] += cacc
 
         mae_loss += F.l1_loss(y_hat, true_return_ratio).item()
-
-        if USE_KG:
-            loss += kg_loss.mean()
-
-        if model.training:
-            loss.backward()
-            opt_c.step()
-            opt_c.zero_grad()
-
         rmse_returns_loss += F.mse_loss(y_hat, true_return_ratio).item()
-        mape += mean_absolute_percentage_error(y_hat.squeeze(), true_return_ratio)
+        mape += mean_absolute_percentage_error(y_hat, true_return_ratio)
 
         move_pred = torch.where(y_hat >= 1, 1, 0)
         move_loss += (move_pred.int() == move_target).float().mean()
-        
+
         mini = min(mini, y_hat.min().item())
         maxi = max(maxi, y_hat.max().item())  
         
@@ -297,17 +295,11 @@ for tau in tau_choices:
         start_time += 100
 
         model  = Transformer_Ranking(W, T, D_MODEL, N_HEAD, ENC_LAYERS, DEC_LAYERS, D_FF, DROPOUT, USE_POS_ENCODING, USE_GRAPH, HYPER_GRAPH, USE_KG, num_nodes)
-
         #print(model)
         model.to(device)
 
-        inv_comp_map = {company_to_id[k] : k for k in company_to_id}
-
         opt_c = torch.optim.Adam(model.parameters(), lr = LR, betas=(0.9, 0.999), eps=1e-08, weight_decay=0)
-        loss_fn = F.mse_loss
-        move_loss_fn = accuracy_score
 
-        best_test_acc = 0
         prev_val_loss = float("infinity")
         for ep in range(MAX_EPOCH):
             print("Epoch: " + str(ep+1))
@@ -321,7 +313,7 @@ for tau in tau_choices:
 
             #plot(val_loader)
 
-            if (ep > MAX_EPOCH//2 or ep > 15) and prev_val_loss > val_epoch_loss:
+            if (ep > MAX_EPOCH//2 or ep > 10) and prev_val_loss > val_epoch_loss:
                 print("Saving Model")
                 torch.save(model.state_dict(), "models/saved_models/best_model_"+INDEX+str(W)+"_"+str(T)+"_"+str(RUN)+".pt")
                 prev_val_loss = val_epoch_loss

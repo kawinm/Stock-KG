@@ -37,12 +37,10 @@ class Transformer_Ranking(nn.Module):
     def __init__(self, W, T, D_MODEL, N_HEAD, ENC_LAYERS, DEC_LAYERS, D_FF, DROPOUT, USE_POS_ENCODING = False, USE_GRAPH = False, HYPER_GRAPH = True, USE_KG = True, NUM_NODES = 87):
         super().__init__()
 
-        SEC_EMB, n = 0, 1 # 1 For LSTM Embedding
+        SEC_EMB, n = 5, 1 # 1 For LSTM Embedding
         if USE_GRAPH:
-            SEC_EMB = 5
             n += 1
         if USE_KG:
-            SEC_EMB = 5
             n += 1
 
         self.embeddings = nn.Embedding(105, 10)
@@ -146,12 +144,75 @@ class Transformer_Ranking(nn.Module):
         x = torch.cat((x, xb), dim=2)
 
         price_pred = self.pred(x)
-        price_pred = F.leaky_relu(price_pred, negative_slope=0.2)
+        #price_pred = F.leaky_relu(price_pred)
         #price_pred = F.relu(price_pred)
 
         hold_pred = self.hold_pred(x.mean(dim=1)).squeeze(dim=0)
             # x = F.relu(x)
             # x = self.pred2(x)
         return price_pred, kg_loss, hold_pred
+
+
+# ----------- Model -----------
+class Saturation(nn.Module):
+    
+    def __init__(self, W, T, D_MODEL, N_HEAD, ENC_LAYERS, DEC_LAYERS, D_FF, DROPOUT, USE_POS_ENCODING = False, USE_GRAPH = False, HYPER_GRAPH = True, USE_KG = True, NUM_NODES = 87):
+        super().__init__()
+
+        SEC_EMB, n = 5, 0 # 1 For LSTM Embedding
+        if USE_GRAPH:
+            n += 1
+        if USE_KG:
+            n += 1
+
+        self.lstm_encoder = nn.Linear(D_MODEL, 1)
+        self.transformer_encoder = nn.Linear(W, D_MODEL)
+
+        self.use_graph = USE_GRAPH
+        self.is_hyper_graph = HYPER_GRAPH
+        if self.use_graph:
+            if self.is_hyper_graph:
+                self.graph_model = Sequential('x, hyperedge_index', [
+                        #(Dropout(p=0.5), 'x -> x'),
+                        (HypergraphConv(8, 32, dropout=0.1), 'x, hyperedge_index -> x1'),
+                        nn.LeakyReLU(inplace=True),
+                        (HypergraphConv(32, 32, dropout=0.1), 'x1, hyperedge_index -> x2'),
+                        nn.LeakyReLU(inplace=True),
+                        
+                        #(lambda x1, x2: [x1, x2], 'x1, x2 -> xs'),
+                        #(JumpingKnowledge("cat", 64, num_layers=2), 'xs -> x'),
+                        #(global_mean_pool, 'x, batch -> x'),
+                        nn.Linear(32, SEC_EMB),
+                    ])
+            else:
+                self.graph_model = Sequential('x, edge_index, batch', [
+                            #(Dropout(p=0.5), 'x -> x'),
+                            (GCNConv(8, 32), 'x, edge_index -> x1'),
+                            nn.ReLU(inplace=True),
+                            (GCNConv(32, 64), 'x1, edge_index -> x2'),
+                            nn.ReLU(inplace=True),
+                            #(lambda x1, x2: [x1, x2], 'x1, x2 -> xs'),
+                            #(JumpingKnowledge("cat", 64, num_layers=2), 'xs -> x'),
+                            #(global_mean_pool, 'x, batch -> x'),
+                            nn.Linear(64, SEC_EMB),
+                        ])
+
+        self.pred = nn.Linear(D_MODEL, 1)
+
+    def forward(self, xb, yb=None, graph=None, kg=None):
+        x = self.lstm_encoder(xb).squeeze()
+        x = self.transformer_encoder(x)               # x: [B, C, W*F]
+
+        if self.use_graph and self.is_hyper_graph:
+            g_emb = self.graph_model(graph['x'], graph['hyperedge_index'])
+            #g_emb = g_emb.repeat(1, self.time_steps, 1)
+            #x = torch.cat((x, g_emb), dim=1)
+        elif self.use_graph and not self.is_hyper_graph:
+            g_emb = self.graph_model(graph['x'], graph['edge_list'], graph['batch'])
+            #g_emb = g_emb.repeat(1, self.time_steps, 1)        
+            #x = torch.cat((x, g_emb), dim=1)
+
+        price_pred = self.pred(x)
+        return price_pred, 0, 0
 
 

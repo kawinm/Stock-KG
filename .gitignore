@@ -1,1 +1,4 @@
 data/
+logs/
+models/saved_models/
+wandb/

@@ -30,7 +30,8 @@ def window_scale_divison(df, W, T, company_to_id, ticker):
                         (df['Close'][i+W+T:i+W+T+1] / df['Close'][i+W:i+W+1].values).values
                         for T in [1, 5, 20, 50, 75, 100, 125, 250]
                     ], 
-                    df['Close'][i+W:i+W+1]
+                    df['Close'][i+W:i+W+1],
+                    df.iloc[i+W:i+W+1, 7:].values
                 ) 
                 for i in range(df.shape[0]-W-T)
             ]
@@ -47,6 +48,7 @@ def create_batch_dataset(INDEX, W, T, problem='value', fast = False):
     dataset = []
     df_map = {}
     skipped_ticker = []
+    total = 0
     for filename in os.listdir(directory):
         f = os.path.join(directory, filename)
         if os.path.isfile(f):
@@ -54,28 +56,42 @@ def create_batch_dataset(INDEX, W, T, problem='value', fast = False):
             ticker, name = filename.split("-")
             df = pd.read_csv(f)
 
-            if df.shape[0] <= 2600:    # 13 years
+            if df.shape[0] <= 2800:    # 13 years
                 print("Skipping file: Less Training-Testing samples [{0} samples]".format(df.shape[0]))
                 skipped_ticker.append(ticker)
                 continue
+            total += 1
 
             if ticker not in company_to_id:
                 company_to_id[ticker] = company_id
                 company_id += 1
             
             
+            if df.shape[0] > 2800:
+                df = df.iloc[-2800:]
         
+
+            annual_df = pd.read_csv("kg/fundamentals/macrotrends/combined-preprocessed/"+ticker+"-annual.csv")
+            quarterly_df = pd.read_csv("kg/fundamentals/macrotrends/combined-preprocessed/"+ticker+"-quarterly.csv")
+
+            df['Date'] = pd.to_datetime(df['Date'])
+            annual_df['Date'] = pd.to_datetime(annual_df['Date'])
+            quarterly_df['Date'] = pd.to_datetime(quarterly_df['Date'])
+
+            # sort annual_df based on date
+            annual_df = annual_df.sort_values('Date')
+            quarterly_df = quarterly_df.sort_values('Date')
             
-            if df.shape[0] > 2600:
-                df = df.iloc[-2600:]
-            
-        
-            print(df.shape)
+
+            # Join df on date with value greater than given
+            df = pd.merge_asof(df, annual_df, on='Date', direction='backward')
+            df = pd.merge_asof(df, quarterly_df, on='Date', direction='backward')
+
             
             list_df = window_scale_divison(df, W, T, company_to_id, ticker)
 
             df_map[company_to_id[ticker]] = list_df 
-
+            
     for i in range(len(list_df)):
         cur_data = []
         for j in range(company_id):
@@ -201,6 +217,6 @@ if __name__ == "__main__":
     #parser.add_argument('--test_size', type=float, default=0.2)
 
     #create_dataset("nasdaq100", 50, 5)
-    d, s, c, g, h = create_batch_dataset("nasdaq100", 50, 5)
+    d, s, c, g, h = create_batch_dataset("sp500", 50, 5)
     print(len(d[0]), len(d[0][0]), d[0][0][0])
 
