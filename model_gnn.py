@@ -32,7 +32,7 @@ from torch_geometric.nn import global_mean_pool
 from random import randint
 import wandb
 
-GPU = 0
+GPU = 1
 LR = 0.0001
 BS = 128
 W = 20
@@ -44,11 +44,11 @@ DROPOUT = 0.2
 D_FF    = 64
 ENC_LAYERS = 1
 DEC_LAYERS = 1
-MAX_EPOCH = 50
+MAX_EPOCH = 25
 USE_POS_ENCODING = False
 USE_GRAPH = True
 HYPER_GRAPH = True
-USE_KG = False
+USE_KG = True
 PREDICTION_PROBLEM = 'value'
 RUN = randint(1, 100000)
 PLOT = False
@@ -87,8 +87,6 @@ save_path = "data/pickle/"+INDEX+"/graph_data-P25-W"+str(W)+"-T"+str(T)+"_"+str(
 
 dataset, company_to_id, graph, hyper_data = load_or_create_dataset_graph(INDEX=INDEX, W=W, T=T, save_path=save_path, problem=PREDICTION_PROBLEM, fast=FAST)
 
-print(company_to_id)
-hg
 num_nodes = len(company_to_id.keys())
 
 if torch.cuda.is_available():
@@ -183,14 +181,19 @@ def predict(loader, desc):
     #tqdm_loader = tqdm(loader) 
     yb_store, yhat_store = [], []
     for xb, company, yb, scale, move_target in loader:
-        xb      = xb.to(device)[:, :, 3]
+        xb      = xb.to(device)[:, :, 1]
         yb      = yb.to(device) 
         scale   = scale.to(device)
         move_target = move_target.to(device)
 
         y_hat, kg_loss, hold_pred = model(xb, yb, graph_data, relation_kg)
-        y_hat = y_hat.squeeze()
+        y_hat = F.softmax(y_hat.squeeze(), dim = 0)
         true_return_ratio = yb.squeeze() 
+
+        target = torch.topk(true_return_ratio, k=1, dim=0)[1]
+        zeros = torch.zeros_like(y_hat)
+        zeros[target] = 1
+
 
         # store y_hat and yb for plotting
         
@@ -198,7 +201,8 @@ def predict(loader, desc):
         #print("TRR: ", float(true_return_ratio.min()), float(true_return_ratio.max()))
         #print("Pred: ", float(y_hat.min()), float(y_hat.max()))
 
-        loss = F.mse_loss(y_hat, true_return_ratio) #+ rank_loss(y_hat, true_return_ratio)
+        #loss = F.mse_loss(y_hat, true_return_ratio) #+ rank_loss(y_hat, true_return_ratio)
+        loss = F.binary_cross_entropy(y_hat, zeros)
         if USE_KG:
             loss += kg_loss.mean()
 
@@ -228,7 +232,7 @@ def predict(loader, desc):
 
         mini = min(mini, y_hat.min().item())
         maxi = max(maxi, y_hat.max().item())  
-        
+        loss = F.binary_cross_entropy(y_hat, zeros)
         epoch_loss += float(loss)
 
     epoch_loss /= len(loader)
@@ -256,8 +260,8 @@ def predict(loader, desc):
 
     if PLOT:
         mpl.rcParams['figure.dpi']= 300
-        plt.plot(np.array(yb_store).reshape(-1, num_nodes), c='r')
-        plt.plot(np.array(yhat_store).reshape(-1, num_nodes), c='b')
+        plt.plot(np.array(yb_store).reshape(-1, num_nodes)[:, 0], c='r')
+        plt.plot(np.array(yhat_store).reshape(-1, num_nodes)[:, 0], c='b')
         plt.savefig("plots/saturation/R"+ str(RUN)+"-E"+str(ep)+"-T"+str(tau)+ ".png")
         plt.close()
 
@@ -274,9 +278,9 @@ for tau in tau_choices:
     def collate_fn(instn):
         instn = instn[0]
         # df: shape: Companies x W+1 x 5 (5 is the number of features)
-        df = torch.Tensor(np.array([x[0] for x in instn])).unsqueeze(dim=2)
-  
-        for i in range(1, 5):
+        #df = torch.Tensor(np.array([x[0] for x in instn])).unsqueeze(dim=2)
+        df = torch.Tensor(np.array([x[1] for x in instn])).unsqueeze(dim=2) - torch.Tensor(np.array([x[2] for x in instn])).unsqueeze(dim=2)
+        for i in range(3, 5):
             df1 = torch.Tensor(np.array([x[i] for x in instn])).unsqueeze(dim=2)
             df = torch.cat((df, df1), dim=2)
         

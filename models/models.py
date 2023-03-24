@@ -48,7 +48,7 @@ class Transformer_Ranking(nn.Module):
         self.pos_enc_x = PositionalEncoding(d_model=D_MODEL, dropout=DROPOUT, max_len=W)
         self.pos_enc_y = PositionalEncoding(d_model=D_MODEL, dropout=DROPOUT, max_len=T)
 
-        self.lstm_encoder = nn.LSTM(input_size = D_MODEL, hidden_size = D_MODEL, num_layers = ENC_LAYERS, batch_first = True, bidirectional = False)
+        self.lstm_encoder = nn.LSTM(input_size = 3, hidden_size = D_MODEL, num_layers = ENC_LAYERS, batch_first = True, bidirectional = False)
 
         #encoder_layer = nn.TransformerEncoderLayer(d_model=D_MODEL, nhead=N_HEAD, dim_feedforward=D_FF, batch_first=True )
         #self.transformer_encoder_first = nn.TransformerEncoder(encoder_layer, num_layers=ENC_LAYERS)
@@ -120,10 +120,10 @@ class Transformer_Ranking(nn.Module):
         #x = self.transformer_encoder_first(xb).mean(dim=1)
         #xb = x.unsqueeze(dim=0)
 
-        
         xb = xb.squeeze().unsqueeze(dim=0)
         #x = self.transformer_encoder(xb)               # x: [B, C, W*F]
         x = self.fc2(F.dropout(F.relu(self.fc1(xb)), p=0.2))
+        #x = x + xb
         #x = torch.cat((x, emb2), dim=2)
 
         if self.use_graph and self.is_hyper_graph:
@@ -134,7 +134,6 @@ class Transformer_Ranking(nn.Module):
             g_emb = self.graph_model(graph['x'], graph['edge_list'], graph['batch'])
             #g_emb = g_emb.repeat(1, self.time_steps, 1)        
             x = torch.cat((x, g_emb), dim=1)
-
         
         kg_loss = torch.zeros(1)
         if self.use_kg:
