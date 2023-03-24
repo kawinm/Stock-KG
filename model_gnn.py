@@ -38,7 +38,7 @@ BS = 128
 W = 20
 T = 250
 LOG = False
-D_MODEL = 5
+D_MODEL = 20
 N_HEAD  = 5
 DROPOUT = 0.2
 D_FF    = 64
@@ -51,6 +51,7 @@ HYPER_GRAPH = True
 USE_KG = False
 PREDICTION_PROBLEM = 'value'
 RUN = randint(1, 100000)
+PLOT = False
 
 tau_choices = [50, 75, 125, 250]
 tau_positions = [1, 5, 20, 50, 75, 100, 125, 250]
@@ -79,13 +80,15 @@ if LOG:
     wandb.init(project="KG-Stock-Graph"+str(T), config=wandb_config)
 
 INDEX = "sp500" 
+print(INDEX)
 
 save_path = "data/pickle/"+INDEX+"/graph_data-P25-W"+str(W)+"-T"+str(T)+"_"+str(PREDICTION_PROBLEM)+".pkl"
 
 
 dataset, company_to_id, graph, hyper_data = load_or_create_dataset_graph(INDEX=INDEX, W=W, T=T, save_path=save_path, problem=PREDICTION_PROBLEM, fast=FAST)
 
-
+print(company_to_id)
+hg
 num_nodes = len(company_to_id.keys())
 
 if torch.cuda.is_available():
@@ -178,9 +181,9 @@ def predict(loader, desc):
     rr, true_rr, exp_rr, ran_rr, accuracy = torch.zeros(4).to(device), torch.zeros(4).to(device), torch.zeros(4).to(device), torch.zeros(4).to(device), torch.zeros(4).to(device)
     
     #tqdm_loader = tqdm(loader) 
-      
+    yb_store, yhat_store = [], []
     for xb, company, yb, scale, move_target in loader:
-        xb      = xb.to(device) 
+        xb      = xb.to(device)[:, :, 3]
         yb      = yb.to(device) 
         scale   = scale.to(device)
         move_target = move_target.to(device)
@@ -202,7 +205,11 @@ def predict(loader, desc):
         if model.training:
             opt_c.zero_grad()
             loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), 2.0)
             opt_c.step()
+
+        yb_store.append(yb.detach().cpu().numpy())
+        yhat_store.append(y_hat.detach().cpu().numpy())
         
         for index, k in enumerate(top_k_choice):
             crr, ctrr, cerr, crrr, cacc = evaluate(y_hat, true_return_ratio, k)
@@ -247,6 +254,13 @@ def predict(loader, desc):
     if LOG:
         wandb.log(log)
 
+    if PLOT:
+        mpl.rcParams['figure.dpi']= 300
+        plt.plot(np.array(yb_store).reshape(-1, num_nodes), c='r')
+        plt.plot(np.array(yhat_store).reshape(-1, num_nodes), c='b')
+        plt.savefig("plots/saturation/R"+ str(RUN)+"-E"+str(ep)+"-T"+str(tau)+ ".png")
+        plt.close()
+
     return epoch_loss, rr, true_rr, exp_rr, ran_rr, move_loss, mape, accuracy, mae_loss
 
 
@@ -259,14 +273,13 @@ for tau in tau_choices:
     # ----------- Batching the data -----------
     def collate_fn(instn):
         instn = instn[0]
-
         # df: shape: Companies x W+1 x 5 (5 is the number of features)
         df = torch.Tensor(np.array([x[0] for x in instn])).unsqueeze(dim=2)
-
+  
         for i in range(1, 5):
             df1 = torch.Tensor(np.array([x[i] for x in instn])).unsqueeze(dim=2)
             df = torch.cat((df, df1), dim=2)
-
+        
         company = torch.Tensor(np.array([x[5] for x in instn])).long()
         
         # Shape: Companies x 1
@@ -286,7 +299,7 @@ for tau in tau_choices:
 
     test_mean_acc = torch.zeros(4).to(device)
     print(len(dataset))
-    for phase in range(1, 26):
+    for phase in range(1, 24):
         print("Phase: ", phase)
         train_loader    = DataLoader(dataset[start_time:start_time+250], 1, shuffle=True, collate_fn=collate_fn, num_workers=1)
         val_loader      = DataLoader(dataset[start_time+250:start_time+300], 1, shuffle=True, collate_fn=collate_fn)
@@ -298,7 +311,7 @@ for tau in tau_choices:
         #print(model)
         model.to(device)
 
-        opt_c = torch.optim.Adam(model.parameters(), lr = LR, betas=(0.9, 0.999), eps=1e-08, weight_decay=0)
+        opt_c = torch.optim.Adam(model.parameters(), lr = 6e-4, betas=(0.9, 0.999), eps=1e-08, weight_decay=0)
 
         prev_val_loss = float("infinity")
         for ep in range(MAX_EPOCH):
@@ -337,7 +350,7 @@ for tau in tau_choices:
         if LOG:
             wandb.save('model.py')
 
-    phase = 20
+    phase = 23
     print("Tau: ", tau)
     for index, k in enumerate(top_k_choice):
         print("[Mean - {0}] Top {5} {1} {2} {3} {4} {6}".format("TESTING", test_mean_rr[index]/phase, test_mean_trr[index]/phase, test_mean_err[index]/phase, test_mean_rrr[index]/phase, k, test_mean_acc[index]/phase))

@@ -37,7 +37,7 @@ class Transformer_Ranking(nn.Module):
     def __init__(self, W, T, D_MODEL, N_HEAD, ENC_LAYERS, DEC_LAYERS, D_FF, DROPOUT, USE_POS_ENCODING = False, USE_GRAPH = False, HYPER_GRAPH = True, USE_KG = True, NUM_NODES = 87):
         super().__init__()
 
-        SEC_EMB, n = 5, 1 # 1 For LSTM Embedding
+        SEC_EMB, n = 10, 0 # 1 For LSTM Embedding
         if USE_GRAPH:
             n += 1
         if USE_KG:
@@ -56,8 +56,8 @@ class Transformer_Ranking(nn.Module):
         encoder_layer = nn.TransformerEncoderLayer(d_model=D_MODEL, nhead=N_HEAD, dim_feedforward=D_FF, batch_first=True )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=ENC_LAYERS)
 
-        self.fc1 = nn.Linear(5, 5)
-        self.fc2 = nn.Linear(1, D_MODEL)
+        self.fc1 = nn.Linear(D_MODEL, D_FF)
+        self.fc2 = nn.Linear(D_FF, D_MODEL)
         self.pred = nn.Linear(D_MODEL+(SEC_EMB*n), 1)
         self.pred2 = nn.Linear(5, 1)
 
@@ -100,7 +100,7 @@ class Transformer_Ranking(nn.Module):
         self.use_kg = USE_KG
         if self.use_kg:
             self.relation_kge = TorusEModel(n_entities= NUM_NODES, n_relations = 57, emb_dim = SEC_EMB, dissimilarity_type='torus_L2')
-            
+        self.num_nodes = NUM_NODES
 
     def forward(self, xb, yb=None, graph=None, kg=None):
         if self.is_pos:
@@ -109,8 +109,8 @@ class Transformer_Ranking(nn.Module):
         #yb = torch.cat((yb, emb2), dim=2)
 
         # # Experiment 1
-        x, y = self.lstm_encoder(xb)
-        xb = y[0]
+        #x, y = self.lstm_encoder(xb)
+        #xb = y[0][-1, :, :].unsqueeze(dim=0)          # x: [B, C, W*F
         
         # # Experiment 2
         #W,F = xb.shape[1], xb.shape[2]
@@ -119,8 +119,11 @@ class Transformer_Ranking(nn.Module):
         # # Experiment 3
         #x = self.transformer_encoder_first(xb).mean(dim=1)
         #xb = x.unsqueeze(dim=0)
+
         
-        x = self.transformer_encoder(xb)               # x: [B, C, W*F]
+        xb = xb.squeeze().unsqueeze(dim=0)
+        #x = self.transformer_encoder(xb)               # x: [B, C, W*F]
+        x = self.fc2(F.dropout(F.relu(self.fc1(xb)), p=0.2))
         #x = torch.cat((x, emb2), dim=2)
 
         if self.use_graph and self.is_hyper_graph:
@@ -131,6 +134,7 @@ class Transformer_Ranking(nn.Module):
             g_emb = self.graph_model(graph['x'], graph['edge_list'], graph['batch'])
             #g_emb = g_emb.repeat(1, self.time_steps, 1)        
             x = torch.cat((x, g_emb), dim=1)
+
         
         kg_loss = torch.zeros(1)
         if self.use_kg:
@@ -140,8 +144,6 @@ class Transformer_Ranking(nn.Module):
             x = torch.cat((x, kg_emb), dim=2)
 
             self.relation_kge.normalize_parameters()
-
-        x = torch.cat((x, xb), dim=2)
 
         price_pred = self.pred(x)
         #price_pred = F.leaky_relu(price_pred)
