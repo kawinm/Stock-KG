@@ -37,7 +37,7 @@ class Transformer_Ranking(nn.Module):
     def __init__(self, W, T, D_MODEL, N_HEAD, ENC_LAYERS, DEC_LAYERS, D_FF, DROPOUT, USE_POS_ENCODING = False, USE_GRAPH = False, HYPER_GRAPH = True, USE_KG = True, NUM_NODES = 87):
         super().__init__()
 
-        SEC_EMB, n = 10, 0 # 1 For LSTM Embedding
+        SEC_EMB, n = 20, 0 # 1 For LSTM Embedding
         if USE_GRAPH:
             n += 1
         if USE_KG:
@@ -58,8 +58,8 @@ class Transformer_Ranking(nn.Module):
 
         self.fc1 = nn.Linear(D_MODEL, D_FF)
         self.fc2 = nn.Linear(D_FF, D_MODEL)
-        self.pred = nn.Linear(D_MODEL+(SEC_EMB*n), 1)
-        self.pred2 = nn.Linear(5, 1)
+        self.pred = nn.Linear((D_MODEL+(SEC_EMB*n)) * NUM_NODES, NUM_NODES*10)
+        self.pred2 = nn.Linear(NUM_NODES*10, NUM_NODES)
 
         self.hold_pred = nn.Linear(D_MODEL+(SEC_EMB*n), 1)
 
@@ -120,7 +120,7 @@ class Transformer_Ranking(nn.Module):
         #x = self.transformer_encoder_first(xb).mean(dim=1)
         #xb = x.unsqueeze(dim=0)
 
-        xb = xb.squeeze().unsqueeze(dim=0)
+        xb = xb[:, :, 3].squeeze().unsqueeze(dim=0)
         #x = self.transformer_encoder(xb)               # x: [B, C, W*F]
         x = self.fc2(F.dropout(F.relu(self.fc1(xb)), p=0.2))
         #x = x + xb
@@ -144,11 +144,13 @@ class Transformer_Ranking(nn.Module):
 
             self.relation_kge.normalize_parameters()
 
+        x = x.view(-1)
         price_pred = self.pred(x)
-        #price_pred = F.leaky_relu(price_pred)
+        price_pred = F.dropout(F.leaky_relu(price_pred), 0.1)
+        price_pred = self.pred2(price_pred)
         #price_pred = F.relu(price_pred)
 
-        hold_pred = self.hold_pred(x.mean(dim=1)).squeeze(dim=0)
+        hold_pred = price_pred #self.hold_pred(x.mean(dim=1)).squeeze(dim=0)
             # x = F.relu(x)
             # x = self.pred2(x)
         return price_pred, kg_loss, hold_pred

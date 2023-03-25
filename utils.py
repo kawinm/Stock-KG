@@ -87,7 +87,20 @@ def create_batch_dataset(INDEX, W, T, problem='value', fast = False):
             df = pd.merge_asof(df, annual_df, on='Date', direction='backward')
             df = pd.merge_asof(df, quarterly_df, on='Date', direction='backward')
 
-            
+            # Fill NaN values with previous values
+            df = df.fillna(method='ffill')
+            print(df.shape)
+
+            list_df = [(
+                    df.iloc[i+W:i+W+1, 7:].shape
+                ) 
+                for i in range(df.shape[0]-W-T)
+            ]
+            for i in list_df:
+                if i[1] != 39:
+                    print("yes", i)
+                    gjd
+
             list_df = window_scale_divison(df, W, T, company_to_id, ticker)
 
             df_map[company_to_id[ticker]] = list_df 

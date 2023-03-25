@@ -40,8 +40,8 @@ T = 250
 LOG = False
 D_MODEL = 20
 N_HEAD  = 5
-DROPOUT = 0.2
-D_FF    = 64
+DROPOUT = 0.1
+D_FF    = 1024
 ENC_LAYERS = 1
 DEC_LAYERS = 1
 MAX_EPOCH = 25
@@ -79,7 +79,7 @@ if LOG:
 
     wandb.init(project="KG-Stock-Graph"+str(T), config=wandb_config)
 
-INDEX = "sp500" 
+INDEX = "nasdaq100" 
 print(INDEX)
 
 save_path = "data/pickle/"+INDEX+"/graph_data-P25-W"+str(W)+"-T"+str(T)+"_"+str(PREDICTION_PROBLEM)+".pkl"
@@ -179,14 +179,17 @@ def predict(loader, desc):
     rr, true_rr, exp_rr, ran_rr, accuracy = torch.zeros(4).to(device), torch.zeros(4).to(device), torch.zeros(4).to(device), torch.zeros(4).to(device), torch.zeros(4).to(device)
     
     #tqdm_loader = tqdm(loader) 
-    yb_store, yhat_store = [], []
+    yb_store, yhat_store, yb_store2 = [], [], []
+    
     for xb, company, yb, scale, move_target in loader:
-        xb      = xb.to(device)[:, :, 1]
+        xb      = xb.to(device)
+        #xb = torch.clamp(xb, min=0, max=1)
         yb      = yb.to(device) 
         scale   = scale.to(device)
         move_target = move_target.to(device)
 
         y_hat, kg_loss, hold_pred = model(xb, yb, graph_data, relation_kg)
+        #y_hat = y_hat.squeeze()
         y_hat = F.softmax(y_hat.squeeze(), dim = 0)
         true_return_ratio = yb.squeeze() 
 
@@ -194,26 +197,21 @@ def predict(loader, desc):
         zeros = torch.zeros_like(y_hat)
         zeros[target] = 1
 
-
-        # store y_hat and yb for plotting
-        
-
-        #print("TRR: ", float(true_return_ratio.min()), float(true_return_ratio.max()))
-        #print("Pred: ", float(y_hat.min()), float(y_hat.max()))
-
         #loss = F.mse_loss(y_hat, true_return_ratio) #+ rank_loss(y_hat, true_return_ratio)
         loss = F.binary_cross_entropy(y_hat, zeros)
         if USE_KG:
             loss += kg_loss.mean()
 
         if model.training:
-            opt_c.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 2.0)
             opt_c.step()
-
-        yb_store.append(yb.detach().cpu().numpy())
-        yhat_store.append(y_hat.detach().cpu().numpy())
+            opt_c.zero_grad()
+        
+        # hold_pred = hold_pred.squeeze()
+        # yb_store.extend(list(hold_pred[:, 0].squeeze().detach().cpu().numpy()))
+        # yb_store2.extend(list(hold_pred[:, 1].squeeze().detach().cpu().numpy()))
+        # yhat_store.extend(list(zeros.detach().cpu().numpy()))
         
         for index, k in enumerate(top_k_choice):
             crr, ctrr, cerr, crrr, cacc = evaluate(y_hat, true_return_ratio, k)
@@ -246,6 +244,7 @@ def predict(loader, desc):
     accuracy /= len(loader)
     mae_loss /= len(loader)
 
+    #print(model.fc3.weight, model.fc3.bias)
     print("[{0}] Movement Prediction Accuracy: {1}, MAPE: {2}".format(desc, move_loss.item(), mape.item()))
     print("[{0}] Range of predictions min: {1} max: {2}".format(desc, mini, maxi))
     print("[{0}] Epoch: {1} MSE: {2} RMSE: {3} Loss: {4} MAE: {5}".format(desc, ep+1, rmse_returns_loss, rmse_returns_loss ** (1/2), epoch_loss, mae_loss))
@@ -257,12 +256,12 @@ def predict(loader, desc):
     
     if LOG:
         wandb.log(log)
-
+    PLOT = False
     if PLOT:
         mpl.rcParams['figure.dpi']= 300
-        plt.plot(np.array(yb_store).reshape(-1, num_nodes)[:, 0], c='r')
-        plt.plot(np.array(yhat_store).reshape(-1, num_nodes)[:, 0], c='b')
-        plt.savefig("plots/saturation/R"+ str(RUN)+"-E"+str(ep)+"-T"+str(tau)+ ".png")
+        plt.scatter(np.array(yb_store), np.array(yb_store2), c=np.array(yhat_store))
+        #plt.plot(np.array(yhat_store).reshape(-1, num_nodes)[:, 0], c='b')
+        plt.savefig("plots/saturation/E"+str(ep)+"-T"+str(tau)+ ".png")
         plt.close()
 
     return epoch_loss, rr, true_rr, exp_rr, ran_rr, move_loss, mape, accuracy, mae_loss
@@ -278,12 +277,21 @@ for tau in tau_choices:
     def collate_fn(instn):
         instn = instn[0]
         # df: shape: Companies x W+1 x 5 (5 is the number of features)
-        #df = torch.Tensor(np.array([x[0] for x in instn])).unsqueeze(dim=2)
-        df = torch.Tensor(np.array([x[1] for x in instn])).unsqueeze(dim=2) - torch.Tensor(np.array([x[2] for x in instn])).unsqueeze(dim=2)
-        for i in range(3, 5):
+        df = torch.Tensor(np.array([x[0] for x in instn])).unsqueeze(dim=2)
+        #df = torch.Tensor(np.array([x[1] for x in instn])).unsqueeze(dim=2) - torch.Tensor(np.array([x[2] for x in instn])).unsqueeze(dim=2)
+        for i in range(1, 5):
             df1 = torch.Tensor(np.array([x[i] for x in instn])).unsqueeze(dim=2)
             df = torch.cat((df, df1), dim=2)
         
+        #financials = [np.array(x[9]).squeeze() for x in instn]
+        #for i in financials:
+        #    if i.shape[0] != 39:
+        #        print("yes", i.shape)
+        #print(financials[0].shape)
+
+        #financials = torch.Tensor(np.array(financials))
+        #kjkj
+
         company = torch.Tensor(np.array([x[5] for x in instn])).long()
         
         # Shape: Companies x 1
@@ -315,7 +323,8 @@ for tau in tau_choices:
         #print(model)
         model.to(device)
 
-        opt_c = torch.optim.Adam(model.parameters(), lr = 6e-4, betas=(0.9, 0.999), eps=1e-08, weight_decay=0)
+        opt_c = torch.optim.Adam(model.parameters(), lr = 6e-5, betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4)
+        #opt_c = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=0, nesterov=True)
 
         prev_val_loss = float("infinity")
         for ep in range(MAX_EPOCH):
@@ -346,7 +355,7 @@ for tau in tau_choices:
             test_mean_rrr += rrr
             test_mean_acc += accuracy
             test_mean_move += float(move)
-            test_mean_mape += float(mape)
+            test_mean_mape += float(test_epoch_loss)
             test_mean_mae += float(mae)
             for index, k in enumerate(top_k_choice):
                 print("[Mean - {0}] Top {5} Return Ratio: {1} True Return Ratio: {2} Expected Return Ratio: {3} Random Return Ratio: {4} Accuracy: {6}".format("TESTING", test_mean_rr[index]/phase, test_mean_trr[index]/phase, test_mean_err[index]/phase, test_mean_rrr[index]/phase, k, test_mean_acc[index]/phase))
@@ -359,6 +368,7 @@ for tau in tau_choices:
     for index, k in enumerate(top_k_choice):
         print("[Mean - {0}] Top {5} {1} {2} {3} {4} {6}".format("TESTING", test_mean_rr[index]/phase, test_mean_trr[index]/phase, test_mean_err[index]/phase, test_mean_rrr[index]/phase, k, test_mean_acc[index]/phase))
     print("[Mean - {0}] {1} {2} {3}".format("TESTING", test_mean_move/phase, test_mean_mape/phase, test_mean_mae/phase))
+    break
 
 
 
