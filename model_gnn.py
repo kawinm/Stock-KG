@@ -32,7 +32,7 @@ from torch_geometric.nn import global_mean_pool
 from random import randint
 import wandb
 
-GPU = 1
+GPU = 0
 LR = 0.0001
 BS = 128
 W = 20
@@ -46,8 +46,8 @@ ENC_LAYERS = 1
 DEC_LAYERS = 1
 MAX_EPOCH = 25
 USE_POS_ENCODING = False
-USE_GRAPH = True
-HYPER_GRAPH = True
+USE_GRAPH = False
+HYPER_GRAPH = False
 USE_KG = True
 PREDICTION_PROBLEM = 'value'
 RUN = randint(1, 100000)
@@ -79,7 +79,8 @@ if LOG:
 
     wandb.init(project="KG-Stock-Graph"+str(T), config=wandb_config)
 
-INDEX = "nasdaq100" 
+#INDEX = "nasdaq100" 
+INDEX = "sp500"
 print(INDEX)
 
 save_path = "data/pickle/"+INDEX+"/graph_data-P25-W"+str(W)+"-T"+str(T)+"_"+str(PREDICTION_PROBLEM)+".pkl"
@@ -93,7 +94,6 @@ if torch.cuda.is_available():
     device = torch.device("cuda:"+str(GPU))
 else:
     device = torch.device("cpu")
-
 
 if not HYPER_GRAPH:
     graph_nodes_batch = torch.zeros(graph.x.shape[0]).to(device)
@@ -113,11 +113,20 @@ else:
     }
 
 if USE_KG:
-    with open('./kg/profile_and_relationship/wikidata/'+INDEX+'_relations_kg.pkl', 'rb') as f:
-        relation_kg = pickle.load(f)['kg']
-    head, relation, tail = relation_kg[0], relation_kg[1], relation_kg[2]
-    head, relation, tail = head.to(device), relation.to(device), tail.to(device)
-    relation_kg = (head, relation, tail)
+    #kg_file_name = './kg/profile_and_relationship/wikidata/'+INDEX+'_relations_kg.pkl'
+    kg_file_name = './kg/profile_and_relationship/wikidata/entire_kg.pkl'
+    with open(kg_file_name, 'rb') as f:
+        pkl_file = pickle.load(f)
+        relation_kg = pkl_file['kg']
+        if INDEX == 'nasdaq100':
+            kg_index = pkl_file['nasdaq_map']
+        else:
+            kg_index = pkl_file['sp_map']
+    
+    head, relation, tail = relation_kg[0].long(), relation_kg[1].long(), relation_kg[2].long()
+    print(head.max(), relation.max(), tail.max())
+    head, relation, tail, kg_index = head.to(device), relation.to(device), tail.to(device), kg_index.to(device)
+    relation_kg = (head, relation, tail, kg_index)
 else:
     relation_kg = None
 
@@ -193,7 +202,7 @@ def predict(loader, desc):
         y_hat = F.softmax(y_hat.squeeze(), dim = 0)
         true_return_ratio = yb.squeeze() 
 
-        target = torch.topk(true_return_ratio, k=1, dim=0)[1]
+        target = torch.topk(true_return_ratio, k=5, dim=0)[1]
         zeros = torch.zeros_like(y_hat)
         zeros[target] = 1
 

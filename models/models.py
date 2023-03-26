@@ -48,7 +48,7 @@ class Transformer_Ranking(nn.Module):
         self.pos_enc_x = PositionalEncoding(d_model=D_MODEL, dropout=DROPOUT, max_len=W)
         self.pos_enc_y = PositionalEncoding(d_model=D_MODEL, dropout=DROPOUT, max_len=T)
 
-        self.lstm_encoder = nn.LSTM(input_size = 3, hidden_size = D_MODEL, num_layers = ENC_LAYERS, batch_first = True, bidirectional = False)
+        self.lstm_encoder = nn.LSTM(input_size = 5, hidden_size = D_MODEL, num_layers = ENC_LAYERS, batch_first = True, bidirectional = False)
 
         #encoder_layer = nn.TransformerEncoderLayer(d_model=D_MODEL, nhead=N_HEAD, dim_feedforward=D_FF, batch_first=True )
         #self.transformer_encoder_first = nn.TransformerEncoder(encoder_layer, num_layers=ENC_LAYERS)
@@ -99,7 +99,7 @@ class Transformer_Ranking(nn.Module):
                 
         self.use_kg = USE_KG
         if self.use_kg:
-            self.relation_kge = TorusEModel(n_entities= NUM_NODES, n_relations = 57, emb_dim = SEC_EMB, dissimilarity_type='torus_L2')
+            self.relation_kge = TorusEModel(n_entities= 5025, n_relations = 20, emb_dim = SEC_EMB, dissimilarity_type='torus_L2')
         self.num_nodes = NUM_NODES
 
     def forward(self, xb, yb=None, graph=None, kg=None):
@@ -109,8 +109,8 @@ class Transformer_Ranking(nn.Module):
         #yb = torch.cat((yb, emb2), dim=2)
 
         # # Experiment 1
-        #x, y = self.lstm_encoder(xb)
-        #xb = y[0][-1, :, :].unsqueeze(dim=0)          # x: [B, C, W*F
+        x, y = self.lstm_encoder(xb)
+        xb = y[0][-1, :, :].unsqueeze(dim=0)          # x: [B, C, W*F
         
         # # Experiment 2
         #W,F = xb.shape[1], xb.shape[2]
@@ -120,9 +120,9 @@ class Transformer_Ranking(nn.Module):
         #x = self.transformer_encoder_first(xb).mean(dim=1)
         #xb = x.unsqueeze(dim=0)
 
-        xb = xb[:, :, 3].squeeze().unsqueeze(dim=0)
+        #xb = xb[:, :, 3].squeeze().unsqueeze(dim=0)
         #x = self.transformer_encoder(xb)               # x: [B, C, W*F]
-        x = self.fc2(F.dropout(F.relu(self.fc1(xb)), p=0.2))
+        x = self.fc2(F.dropout(F.leaky_relu(self.fc1(xb)), p=0.2))
         #x = x + xb
         #x = torch.cat((x, emb2), dim=2)
 
@@ -139,6 +139,7 @@ class Transformer_Ranking(nn.Module):
         if self.use_kg:
             kg_loss = self.relation_kge.scoring_function(kg[0], kg[2], kg[1])
             kg_emb, rel_emb = self.relation_kge.get_embeddings()
+            kg_emb = kg_emb[kg[3].long()]
             kg_emb = kg_emb.unsqueeze(dim=0)
             x = torch.cat((x, kg_emb), dim=2)
 
