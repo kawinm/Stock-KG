@@ -16,7 +16,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 
 mpl.rcParams['figure.dpi']= 300
 
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, ndcg_score
 from torchinfo import summary
 from tqdm import tqdm
 from utils import (mean_absolute_percentage_error,
@@ -58,7 +58,7 @@ tau_positions = [1, 5, 20, 50, 75, 100, 125, 250]
 
 MODEL = "ours"
 
-print("Experiment SP500 P25 W=20 Run 1 Without Relation KG")
+
 FAST = False
 if FAST == True:
     LOG = False
@@ -79,9 +79,9 @@ if LOG:
 
     wandb.init(project="KG-Stock-Graph"+str(T), config=wandb_config)
 
-#INDEX = "nasdaq100" 
-INDEX = "sp500"
-print(INDEX)
+INDEX = "nasdaq100" 
+#INDEX = "sp500"
+print("Experiment {0} With Entire KG P23 W=20 Run 1".format(INDEX))
 
 save_path = "data/pickle/"+INDEX+"/graph_data-P25-W"+str(W)+"-T"+str(T)+"_"+str(PREDICTION_PROBLEM)+".pkl"
 
@@ -179,17 +179,31 @@ def evaluate(prediction, ground_truth, K):
     return obtained_return_ratio, target_obtained_return_ratio, expected_return_ratio, random_return_ratio, accuracy
 
 
-top_k_choice = [1, 3, 5, 10]
+top_k_choice = [1, 3, 5]
+
+def calculate_ndcg(predict, true, k):
+    true_rel = torch.zeros_like(predict)
+    rel = k
+    for idx in torch.topk(true, k=k, dim=0)[1]:
+        true_rel[idx] = rel
+        rel -= 1
+
+    return ndcg_score(true_rel.unsqueeze(dim=0).cpu(), predict.unsqueeze(dim=0).cpu().detach())
 
 # ----------- Main Training Loop -----------
 def predict(loader, desc):
     epoch_loss, mape, move_loss, rmse_returns_loss, mae_loss = 0, 0, 0, 0, 0
     mini, maxi = float("infinity"), 0
+
+    # TODO: RR is actually RoI (Return on Investment)
+    # TODO: Ramit uses some weird formula for RR, which he calls cumulative IRR (Investment Return Ratio)
+    # which is not practical, because it's not a ratio, it's a sum of ratio across all assets
+
     rr, true_rr, exp_rr, ran_rr, accuracy = torch.zeros(4).to(device), torch.zeros(4).to(device), torch.zeros(4).to(device), torch.zeros(4).to(device), torch.zeros(4).to(device)
-    
+    ndcg = torch.zeros(4).to(device)
     #tqdm_loader = tqdm(loader) 
     yb_store, yhat_store, yb_store2 = [], [], []
-    
+    num_holds = 0
     for xb, company, yb, scale, move_target in loader:
         xb      = xb.to(device)
         #xb = torch.clamp(xb, min=0, max=1)
@@ -202,12 +216,15 @@ def predict(loader, desc):
         y_hat = F.softmax(y_hat.squeeze(), dim = 0)
         true_return_ratio = yb.squeeze() 
 
-        target = torch.topk(true_return_ratio, k=5, dim=0)[1]
+        target = torch.topk(true_return_ratio, k=5, dim=0)
+        hold_ratio = target[0].mean()
         zeros = torch.zeros_like(y_hat)
-        zeros[target] = 1
+
+        zeros[target[1]] = 1
 
         #loss = F.mse_loss(y_hat, true_return_ratio) #+ rank_loss(y_hat, true_return_ratio)
         loss = F.binary_cross_entropy(y_hat, zeros)
+        epoch_loss += float(loss)
         if USE_KG:
             loss += kg_loss.mean()
 
@@ -217,19 +234,20 @@ def predict(loader, desc):
             opt_c.step()
             opt_c.zero_grad()
         
+        
         # hold_pred = hold_pred.squeeze()
         # yb_store.extend(list(hold_pred[:, 0].squeeze().detach().cpu().numpy()))
         # yb_store2.extend(list(hold_pred[:, 1].squeeze().detach().cpu().numpy()))
         # yhat_store.extend(list(zeros.detach().cpu().numpy()))
-        
         for index, k in enumerate(top_k_choice):
-            crr, ctrr, cerr, crrr, cacc = evaluate(y_hat, true_return_ratio, k)
+            crr, ctrr, cerr, crrr, cacc = evaluate(y_hat[:-1], true_return_ratio, k)
             ran_rr[index] += crrr
             true_rr[index] += ctrr
             rr[index] += crr
             exp_rr[index] += cerr
             accuracy[index] += cacc
-
+            ndcg[index] += calculate_ndcg(y_hat, true_return_ratio, k)
+       
         mae_loss += F.l1_loss(y_hat, true_return_ratio).item()
         rmse_returns_loss += F.mse_loss(y_hat, true_return_ratio).item()
         mape += mean_absolute_percentage_error(y_hat, true_return_ratio)
@@ -239,19 +257,19 @@ def predict(loader, desc):
 
         mini = min(mini, y_hat.min().item())
         maxi = max(maxi, y_hat.max().item())  
-        loss = F.binary_cross_entropy(y_hat, zeros)
-        epoch_loss += float(loss)
-
+        
+    print("Num holds: ", num_holds)
     epoch_loss /= len(loader)
     rmse_returns_loss /= len(loader)
     move_loss  /= len(loader)
     mape /= len(loader)
-    rr /= len(loader) 
-    true_rr /= len(loader)
-    exp_rr /= len(loader)
-    ran_rr /= len(loader)
-    accuracy /= len(loader)
+    rr /= len(loader  ) 
+    true_rr /= len(loader ) 
+    exp_rr /= len(loader  )
+    ran_rr /= len(loader  )
+    accuracy /= len(loader  )
     mae_loss /= len(loader)
+    ndcg /= len(loader)
 
     #print(model.fc3.weight, model.fc3.bias)
     print("[{0}] Movement Prediction Accuracy: {1}, MAPE: {2}".format(desc, move_loss.item(), mape.item()))
@@ -259,7 +277,7 @@ def predict(loader, desc):
     print("[{0}] Epoch: {1} MSE: {2} RMSE: {3} Loss: {4} MAE: {5}".format(desc, ep+1, rmse_returns_loss, rmse_returns_loss ** (1/2), epoch_loss, mae_loss))
     
     for index, k in enumerate(top_k_choice):
-        print("[{0}] Top {5} Return Ratio: {1} True Return Ratio: {2} Expected Return Ratio: {3} Random Return Ratio: {4} Accuracy: {6}".format(desc, rr[index], true_rr[index], exp_rr[index], ran_rr[index], k, accuracy[index]))
+        print("[{0}] Top {5} NDCG: {7} Return Ratio: {1} True Return Ratio: {2} Expected Return Ratio: {3} Random Return Ratio: {4} Accuracy: {6}".format(desc, rr[index], true_rr[index], exp_rr[index], ran_rr[index], k, accuracy[index], ndcg[index]))
     
     log = {'MSE': epoch_loss, 'RMSE': epoch_loss ** (1/2), "MOVEMENT ACC": move_loss, "MAPE": mape}
     
@@ -273,7 +291,7 @@ def predict(loader, desc):
         plt.savefig("plots/saturation/E"+str(ep)+"-T"+str(tau)+ ".png")
         plt.close()
 
-    return epoch_loss, rr, true_rr, exp_rr, ran_rr, move_loss, mape, accuracy, mae_loss
+    return epoch_loss, rr, true_rr, exp_rr, ran_rr, move_loss, mape, accuracy, mae_loss, ndcg
 
 
 
@@ -316,6 +334,7 @@ for tau in tau_choices:
 
     start_time = 0
     test_mean_rr, test_mean_trr, test_mean_err, test_mean_rrr = torch.zeros(4).to(device), torch.zeros(4).to(device), torch.zeros(4).to(device), torch.zeros(4).to(device)
+    test_mean_ndcg = torch.zeros(4).to(device)
     test_mean_move, test_mean_mape, test_mean_mae = 0, 0, 0
 
     test_mean_acc = torch.zeros(4).to(device)
@@ -332,6 +351,9 @@ for tau in tau_choices:
         #print(model)
         model.to(device)
 
+        #if phase > 1:
+        #    model.load_state_dict(torch.load("models/saved_models/best_model_"+INDEX+str(W)+"_"+str(T)+"_"+str(RUN)+".pt"))
+
         opt_c = torch.optim.Adam(model.parameters(), lr = 6e-5, betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4)
         #opt_c = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=0, nesterov=True)
 
@@ -340,11 +362,11 @@ for tau in tau_choices:
             print("Epoch: " + str(ep+1))
             
             model.train()
-            train_epoch_loss, rr, trr, err, rrr, move, mape, accuracy, mae = predict(train_loader, "TRAINING")
+            train_epoch_loss, rr, trr, err, rrr, move, mape, accuracy, mae, ndcg = predict(train_loader, "TRAINING")
 
             model.eval()
             with torch.no_grad():
-                val_epoch_loss, rr, trr, err, rrr, move, mape, accuracy, mae  = predict(val_loader, "VALIDATION")
+                val_epoch_loss, rr, trr, err, rrr, move, mape, accuracy, mae, ndcg  = predict(val_loader, "VALIDATION")
 
             #plot(val_loader)
 
@@ -357,7 +379,7 @@ for tau in tau_choices:
 
         model.eval()
         with torch.no_grad():
-            test_epoch_loss, rr, trr, err, rrr, move, mape, accuracy, mae = predict(test_loader, "TESTING")
+            test_epoch_loss, rr, trr, err, rrr, move, mape, accuracy, mae, ndcg = predict(test_loader, "TESTING")
             test_mean_rr += rr
             test_mean_trr += trr
             test_mean_err += err
@@ -366,8 +388,9 @@ for tau in tau_choices:
             test_mean_move += float(move)
             test_mean_mape += float(test_epoch_loss)
             test_mean_mae += float(mae)
+            test_mean_ndcg += ndcg
             for index, k in enumerate(top_k_choice):
-                print("[Mean - {0}] Top {5} Return Ratio: {1} True Return Ratio: {2} Expected Return Ratio: {3} Random Return Ratio: {4} Accuracy: {6}".format("TESTING", test_mean_rr[index]/phase, test_mean_trr[index]/phase, test_mean_err[index]/phase, test_mean_rrr[index]/phase, k, test_mean_acc[index]/phase))
+                print("[Mean - {0}] Top {5} NDCG: {7} Return Ratio: {1} True Return Ratio: {2} Expected Return Ratio: {3} Random Return Ratio: {4} Accuracy: {6}".format("TESTING", test_mean_rr[index]/phase, test_mean_trr[index]/phase, test_mean_err[index]/phase, test_mean_rrr[index]/phase, k, test_mean_acc[index]/phase, test_mean_ndcg[index]/phase))
             print("[Mean - {0}] Movement Accuracy: {1} Mean MAPE: {2} Mean MAE: {3}".format("TESTING", test_mean_move/phase, test_mean_mape/phase, test_mean_mae/phase))
         if LOG:
             wandb.save('model.py')
@@ -375,9 +398,9 @@ for tau in tau_choices:
     phase = 23
     print("Tau: ", tau)
     for index, k in enumerate(top_k_choice):
-        print("[Mean - {0}] Top {5} {1} {2} {3} {4} {6}".format("TESTING", test_mean_rr[index]/phase, test_mean_trr[index]/phase, test_mean_err[index]/phase, test_mean_rrr[index]/phase, k, test_mean_acc[index]/phase))
+        print("[Mean - {0}] Top {5} {7} {1} {2} {3} {4} {6}".format("TESTING", test_mean_rr[index]/phase, test_mean_trr[index]/phase, test_mean_err[index]/phase, test_mean_rrr[index]/phase, k, test_mean_acc[index]/phase, test_mean_ndcg[index]/phase))
     print("[Mean - {0}] {1} {2} {3}".format("TESTING", test_mean_move/phase, test_mean_mape/phase, test_mean_mae/phase))
-    break
+    
 
 
 

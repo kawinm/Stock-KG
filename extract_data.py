@@ -44,6 +44,7 @@ def download_historical_data(constituent_dict, start_time, end_time):
         
         if company in not_found:
             continue
+        
 
         retrieve_url = "https://query1.finance.yahoo.com/v7/finance/download/" + company + \
                         "?period1=" + str(start_time) + "&period2=" + str(end_time) + \
