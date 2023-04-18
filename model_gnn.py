@@ -29,6 +29,11 @@ from torch.nn import Linear, ReLU, Dropout
 from torch_geometric.nn import Sequential, GCNConv, JumpingKnowledge
 from torch_geometric.nn import global_mean_pool
 
+#import tensorflow_ranking as tfr
+
+from pytorchltr.loss import LambdaNDCGLoss1, LambdaNDCGLoss2
+from torchmetrics.functional import retrieval_normalized_dcg
+
 from random import randint
 import wandb
 
@@ -53,7 +58,7 @@ PREDICTION_PROBLEM = 'value'
 RUN = randint(1, 100000)
 PLOT = False
 
-tau_choices = [50, 75, 125, 250]
+tau_choices = [1,5,20]
 tau_positions = [1, 5, 20, 50, 75, 100, 125, 250]
 
 MODEL = "ours"
@@ -89,6 +94,7 @@ save_path = "data/pickle/"+INDEX+"/graph_data-P25-W"+str(W)+"-T"+str(T)+"_"+str(
 dataset, company_to_id, graph, hyper_data = load_or_create_dataset_graph(INDEX=INDEX, W=W, T=T, save_path=save_path, problem=PREDICTION_PROBLEM, fast=FAST)
 
 num_nodes = len(company_to_id.keys())
+inverse_company_to_id = {v: k for k, v in company_to_id.items()}
 
 if torch.cuda.is_available():
     device = torch.device("cuda:"+str(GPU))
@@ -188,7 +194,76 @@ def calculate_ndcg(predict, true, k):
         true_rel[idx] = rel
         rel -= 1
 
-    return ndcg_score(true_rel.unsqueeze(dim=0).cpu(), predict.unsqueeze(dim=0).cpu().detach())
+    return retrieval_normalized_dcg(predict, true_rel)
+
+def approxNDCGLoss(y_pred, y_true, eps=1e-10, padded_value_indicator=-1, alpha=1.):
+    """
+    Loss based on approximate NDCG introduced in "A General Approximation Framework for Direct Optimization of
+    Information Retrieval Measures". Please note that this method does not implement any kind of truncation.
+    :param y_pred: predictions from the model, shape [batch_size, slate_length]
+    :param y_true: ground truth labels, shape [batch_size, slate_length]
+    :param eps: epsilon value, used for numerical stability
+    :param padded_value_indicator: an indicator of the y_true index containing a padded item, e.g. -1
+    :param alpha: score difference weight used in the sigmoid function
+    :return: loss value, a torch.Tensor
+    """
+    # shuffle for randomised tie resolution
+    random_indices = torch.randperm(y_pred.shape[-1])
+    y_pred_shuffled = y_pred.unsqueeze(dim=0)[:, random_indices]
+    y_true_shuffled = y_true.unsqueeze(dim=0)[:, random_indices]
+
+    y_true_sorted, indices = y_true_shuffled.sort(descending=True, dim=-1)
+
+    mask = y_true_sorted == padded_value_indicator
+
+    preds_sorted_by_true = torch.gather(y_pred_shuffled, dim=1, index=indices)
+    preds_sorted_by_true[mask] = float("-inf")
+
+    max_pred_values, _ = preds_sorted_by_true.max(dim=1, keepdim=True)
+
+    preds_sorted_by_true_minus_max = preds_sorted_by_true - max_pred_values
+
+    cumsums = torch.cumsum(preds_sorted_by_true_minus_max.exp().flip(dims=[1]), dim=1).flip(dims=[1])
+
+    observation_loss = torch.log(cumsums + eps) - preds_sorted_by_true_minus_max
+
+    observation_loss[mask] = 0.0
+
+    return torch.mean(torch.sum(observation_loss, dim=1))
+
+def approx_rank(logits):
+    """_summary_
+
+    Args:
+        logits (_type_): A `Tensor` with shape [batch_size, list_size]. Each value is the
+      ranking score of the corresponding item.
+
+    Returns:
+        _type_: A `Tensor` of ranks with the same shape as logits.
+    """
+    list_size = logits.shape[1]
+    x = logits.unsqueeze(2).repeat(1, 1, list_size)
+    y = logits.unsqueeze(1).repeat(1, list_size, 1)
+    rank = torch.sigmoid(x - y)
+    rank = torch.sum(rank, dim=-1) #+ 0.5
+    return rank
+
+def approx_ndcg_loss(logits, labels):
+    """_summary_
+
+    Args:
+        logits (_type_): A `Tensor` with shape [batch_size, list_size]. Each value is the
+      ranking score of the corresponding item.
+        labels (_type_): A `Tensor` with shape [batch_size, list_size]. Each value is the
+      relevance label of the corresponding item.
+
+    Returns:
+        _type_: A `Tensor` of ndcg loss with shape [batch_size].
+    """
+    rank = approx_rank(logits)
+    #print("logits", torch.topk(logits, k=5, dim=-1), torch.topk(rank, k=5, dim=-1))
+    return - retrieval_normalized_dcg(rank, labels)
+
 
 # ----------- Main Training Loop -----------
 def predict(loader, desc):
@@ -204,6 +279,7 @@ def predict(loader, desc):
     #tqdm_loader = tqdm(loader) 
     yb_store, yhat_store, yb_store2 = [], [], []
     num_holds = 0
+    ng = 0
     for xb, company, yb, scale, move_target in loader:
         xb      = xb.to(device)
         #xb = torch.clamp(xb, min=0, max=1)
@@ -224,15 +300,49 @@ def predict(loader, desc):
 
         #loss = F.mse_loss(y_hat, true_return_ratio) #+ rank_loss(y_hat, true_return_ratio)
         loss = F.binary_cross_entropy(y_hat, zeros)
+
+        tt = torch.topk(true_return_ratio, k=70, dim=0)
+        true_rel = torch.zeros_like(y_hat)
+        rel = 70
+        for idx in tt[1]:
+            true_rel[idx] = rel
+            rel -= 1
+
+        #ranking_loss_fn = tfr.keras.losses.ApproxNDCGLoss()
+        #loss += ranking_loss_fn(true_rel, y_hat)
+        #print(loss)
+        #lfn = LambdaNDCGLoss2(sigma=1.0)
+        #print(y_hat.unsqueeze(dim=0).shape, true_rel.unsqueeze(dim=0).shape, torch.Tensor([true_rel.shape[1]]), true_rel.shape)
+        #a = lfn(y_hat.unsqueeze(dim=0).cpu(), true_rel.unsqueeze(dim=0).cpu(), torch.Tensor([true_rel.shape[0]]))[0] * 0.3
+        #loss += a
+        #print("rank", lfn(y_hat.unsqueeze(dim=0).cpu(), true_rel.unsqueeze(dim=0).cpu(), torch.Tensor([true_rel.shape[0]])))
+        #loss = approx_ndcg_loss(y_hat.unsqueeze(dim=0), true_rel.unsqueeze(dim=0)) 
+        #ng += approx_ndcg_loss(y_hat.unsqueeze(dim=0), true_rel.unsqueeze(dim=0))
+        #ng += a
         epoch_loss += float(loss)
         if USE_KG:
             loss += kg_loss.mean()
+            
 
         if model.training:
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 2.0)
+            #nn.utils.clip_grad_norm_(model.parameters(), 2.0)
             opt_c.step()
             opt_c.zero_grad()
+
+        if not model.training and False:
+            plot = torch.topk(y_hat, k=5, dim=0)[1]
+            plot2 = torch.topk(true_return_ratio, k=5, dim=0)[1]
+            #print(plot.item())
+            plot1_list = []
+            plot2_list = []
+            for i in range(5):
+                plot1_list.append(inverse_company_to_id[plot[i].item()])
+                plot2_list.append(inverse_company_to_id[plot2[i].item()])
+                #print(inverse_company_to_id[plot[i].item()], inverse_company_to_id[plot2[i].item()], end= " ")
+            print(plot1_list, plot2_list)
+
+
         
         
         # hold_pred = hold_pred.squeeze()
@@ -270,6 +380,7 @@ def predict(loader, desc):
     accuracy /= len(loader  )
     mae_loss /= len(loader)
     ndcg /= len(loader)
+    print(ng)
 
     #print(model.fc3.weight, model.fc3.bias)
     print("[{0}] Movement Prediction Accuracy: {1}, MAPE: {2}".format(desc, move_loss.item(), mape.item()))
@@ -341,8 +452,8 @@ for tau in tau_choices:
     print(len(dataset))
     for phase in range(1, 24):
         print("Phase: ", phase)
-        train_loader    = DataLoader(dataset[start_time:start_time+250], 1, shuffle=True, collate_fn=collate_fn, num_workers=1)
-        val_loader      = DataLoader(dataset[start_time+250:start_time+300], 1, shuffle=True, collate_fn=collate_fn)
+        train_loader    = DataLoader(dataset[start_time:start_time+250], 1, shuffle=False, collate_fn=collate_fn, num_workers=1)
+        val_loader      = DataLoader(dataset[start_time+250:start_time+300], 1, shuffle=False, collate_fn=collate_fn)
         test_loader     = DataLoader(dataset[start_time+300:start_time+400], 1, shuffle=False, collate_fn=collate_fn)
 
         start_time += 100
@@ -354,7 +465,7 @@ for tau in tau_choices:
         #if phase > 1:
         #    model.load_state_dict(torch.load("models/saved_models/best_model_"+INDEX+str(W)+"_"+str(T)+"_"+str(RUN)+".pt"))
 
-        opt_c = torch.optim.Adam(model.parameters(), lr = 6e-5, betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4)
+        opt_c = torch.optim.Adam(model.parameters(), lr = 1e-6, betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4)
         #opt_c = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=0, nesterov=True)
 
         prev_val_loss = float("infinity")

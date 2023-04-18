@@ -147,7 +147,7 @@ class Transformer_Ranking(nn.Module):
 
         x = x.view(-1)
         price_pred = self.pred(x)
-        price_pred = F.dropout(F.leaky_relu(price_pred), 0.1)
+        price_pred = F.dropout(F.leaky_relu(price_pred), 0.2)
         price_pred = self.pred2(price_pred)
         #price_pred = F.relu(price_pred)
 
