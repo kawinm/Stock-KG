@@ -41,7 +41,7 @@ class Transformer_Ranking(nn.Module):
         if USE_GRAPH:
             n += 1
         if USE_KG:
-            n += 1
+            n += 2
 
         self.embeddings = nn.Embedding(105, 10)
 
@@ -99,10 +99,12 @@ class Transformer_Ranking(nn.Module):
                 
         self.use_kg = USE_KG
         if self.use_kg:
-            self.relation_kge = TorusEModel(n_entities= 5025, n_relations = 20, emb_dim = SEC_EMB, dissimilarity_type='torus_L2')
+            self.relation_kge = TorusEModel(n_entities= 5500, n_relations = 60, emb_dim = SEC_EMB, dissimilarity_type='torus_L2')
+        if self.use_kg:
+            self.temporal_kge = TorusEModel(n_entities= 5500, n_relations = 60, emb_dim = SEC_EMB, dissimilarity_type='torus_L2')
         self.num_nodes = NUM_NODES
 
-    def forward(self, xb, yb=None, graph=None, kg=None):
+    def forward(self, xb, yb=None, graph=None, kg=None, tkg=None):
         if self.is_pos:
             xb = self.pos_enc_x(xb)
             yb = self.pos_enc_y(yb)
@@ -137,13 +139,23 @@ class Transformer_Ranking(nn.Module):
         
         kg_loss = torch.zeros(1)
         if self.use_kg:
-            kg_loss = self.relation_kge.scoring_function(kg[0], kg[2], kg[1])
+            kg_loss = self.relation_kge.scoring_function(kg[0], kg[2], kg[1]).mean()
             kg_emb, rel_emb = self.relation_kge.get_embeddings()
             kg_emb = kg_emb[kg[3].long()]
             kg_emb = kg_emb.unsqueeze(dim=0)
             x = torch.cat((x, kg_emb), dim=2)
 
             self.relation_kge.normalize_parameters()
+        if self.use_kg:
+            head, relation, tail = torch.cat((kg[0], tkg[0])), torch.cat((kg[1], tkg[1])), torch.cat((kg[2], tkg[2]))
+            kg_loss += self.temporal_kge.scoring_function(head, tail, relation).mean()
+            kg_loss /= 2
+            kg_emb, rel_emb = self.temporal_kge.get_embeddings()
+            kg_emb = kg_emb[kg[3].long()]
+            kg_emb = kg_emb.unsqueeze(dim=0)
+            x = torch.cat((x, kg_emb), dim=2)
+
+            self.temporal_kge.normalize_parameters()
 
         x = x.view(-1)
         price_pred = self.pred(x)

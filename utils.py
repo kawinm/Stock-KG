@@ -28,7 +28,7 @@ def window_scale_divison(df, W, T, company_to_id, ticker):
                     df[i+1:i+W+1]['Date'], 
                     [
                         (df['Close'][i+W+T:i+W+T+1] / df['Close'][i+W:i+W+1].values).values
-                        for T in [1, 5, 20, 50, 75, 100, 125, 250]
+                        for T in [1, 5, 20]
                     ], 
                     df['Close'][i+W:i+W+1],
                     df.iloc[i+W:i+W+1, 7:].values
@@ -38,7 +38,7 @@ def window_scale_divison(df, W, T, company_to_id, ticker):
     return list_df
 
 # ------- H2: Create Data -------------
-def create_batch_dataset(INDEX, W, T, problem='value', fast = False):
+def create_batch_dataset(INDEX, W, T=20, problem='value', fast = False):
 
     directory = "data/" + INDEX + "/"
 
@@ -96,21 +96,28 @@ def create_batch_dataset(INDEX, W, T, problem='value', fast = False):
                 ) 
                 for i in range(df.shape[0]-W-T)
             ]
-            for i in list_df:
-                if i[1] != 39:
-                    print("yes", i)
-                    gjd
 
             list_df = window_scale_divison(df, W, T, company_to_id, ticker)
 
             df_map[company_to_id[ticker]] = list_df 
-            
+    
+    kg_file_name = './kg/temporal_events/temporal_kg.pkl'
+    with open(kg_file_name, 'rb') as f:
+        pkl_file = pickle.load(f)
+        relation_kg = pkl_file['temporal_kg']
+
     for i in range(len(list_df)):
         cur_data = []
+        start_time, end_time = list_df[i][6].iloc[0], list_df[i][6].iloc[-1]
+        start_time = pd.to_datetime(start_time, utc=True)
+        end_time = pd.to_datetime(end_time, utc=True)
+        mask = (relation_kg['timestamp'] >= start_time) & (relation_kg['timestamp'] <= end_time)
+        time_relation_kg = relation_kg.loc[mask]
+
         for j in range(company_id):
             cur_data.append(df_map[j][i])
 
-        dataset.append(cur_data) 
+        dataset.append((cur_data, time_relation_kg)) 
 
     print("Skipped Tickers: ", skipped_ticker)
 

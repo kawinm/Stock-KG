@@ -41,7 +41,7 @@ GPU = 0
 LR = 0.0001
 BS = 128
 W = 20
-T = 250
+T = 20
 LOG = False
 D_MODEL = 20
 N_HEAD  = 5
@@ -59,7 +59,7 @@ RUN = randint(1, 100000)
 PLOT = False
 
 tau_choices = [1,5,20]
-tau_positions = [1, 5, 20, 50, 75, 100, 125, 250]
+tau_positions = [1, 5, 20]
 
 MODEL = "ours"
 
@@ -280,14 +280,17 @@ def predict(loader, desc):
     yb_store, yhat_store, yb_store2 = [], [], []
     num_holds = 0
     ng = 0
-    for xb, company, yb, scale, move_target in loader:
+    for xb, company, yb, scale, move_target, tkg in loader:
+        head, relation, tail = tkg
+        head, relation, tail = head.to(device), relation.to(device), tail.to(device)
+        tkg = (head, relation, tail)
         xb      = xb.to(device)
         #xb = torch.clamp(xb, min=0, max=1)
         yb      = yb.to(device) 
         scale   = scale.to(device)
         move_target = move_target.to(device)
 
-        y_hat, kg_loss, hold_pred = model(xb, yb, graph_data, relation_kg)
+        y_hat, kg_loss, hold_pred = model(xb, yb, graph_data, relation_kg, tkg)
         #y_hat = y_hat.squeeze()
         y_hat = F.softmax(y_hat.squeeze(), dim = 0)
         true_return_ratio = yb.squeeze() 
@@ -301,12 +304,12 @@ def predict(loader, desc):
         #loss = F.mse_loss(y_hat, true_return_ratio) #+ rank_loss(y_hat, true_return_ratio)
         loss = F.binary_cross_entropy(y_hat, zeros)
 
-        tt = torch.topk(true_return_ratio, k=70, dim=0)
+        """ tt = torch.topk(true_return_ratio, k=70, dim=0)
         true_rel = torch.zeros_like(y_hat)
         rel = 70
         for idx in tt[1]:
             true_rel[idx] = rel
-            rel -= 1
+            rel -= 1 """
 
         #ranking_loss_fn = tfr.keras.losses.ApproxNDCGLoss()
         #loss += ranking_loss_fn(true_rel, y_hat)
@@ -321,7 +324,7 @@ def predict(loader, desc):
         #ng += a
         epoch_loss += float(loss)
         if USE_KG:
-            loss += kg_loss.mean()
+            loss += kg_loss.item()
             
 
         if model.training:
@@ -413,7 +416,14 @@ for tau in tau_choices:
 
     # ----------- Batching the data -----------
     def collate_fn(instn):
-        instn = instn[0]
+        tkg = instn[0][1]
+        head, relation, tail = torch.Tensor([int(x) for x in tkg['head'].values]).long(), torch.Tensor([int(x) for x in tkg['relation'].values]).long(), torch.Tensor([int(x) for x in tkg['tail'].values]).long()
+        #head, relation, tail = head.to(device), relation.to(device), tail.to(device)
+        temporal_kg = (head, relation, tail)
+
+
+        instn = instn[0][0]
+        
         # df: shape: Companies x W+1 x 5 (5 is the number of features)
         df = torch.Tensor(np.array([x[0] for x in instn])).unsqueeze(dim=2)
         #df = torch.Tensor(np.array([x[1] for x in instn])).unsqueeze(dim=2) - torch.Tensor(np.array([x[2] for x in instn])).unsqueeze(dim=2)
@@ -440,7 +450,7 @@ for tau in tau_choices:
 
         movement = target >= 1
 
-        return (df, company, target, scale, movement.int())
+        return (df, company, target, scale, movement.int(), temporal_kg)
 
 
     start_time = 0
@@ -450,7 +460,7 @@ for tau in tau_choices:
 
     test_mean_acc = torch.zeros(4).to(device)
     print(len(dataset))
-    for phase in range(1, 24):
+    for phase in range(1, 25):
         print("Phase: ", phase)
         train_loader    = DataLoader(dataset[start_time:start_time+250], 1, shuffle=False, collate_fn=collate_fn, num_workers=1)
         val_loader      = DataLoader(dataset[start_time+250:start_time+300], 1, shuffle=False, collate_fn=collate_fn)
@@ -506,7 +516,7 @@ for tau in tau_choices:
         if LOG:
             wandb.save('model.py')
 
-    phase = 23
+    phase = 24
     print("Tau: ", tau)
     for index, k in enumerate(top_k_choice):
         print("[Mean - {0}] Top {5} {7} {1} {2} {3} {4} {6}".format("TESTING", test_mean_rr[index]/phase, test_mean_trr[index]/phase, test_mean_err[index]/phase, test_mean_rrr[index]/phase, k, test_mean_acc[index]/phase, test_mean_ndcg[index]/phase))
