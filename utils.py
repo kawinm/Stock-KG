@@ -112,12 +112,16 @@ def create_batch_dataset(INDEX, W, T=20, problem='value', fast = False):
         start_time = pd.to_datetime(start_time, utc=True)
         end_time = pd.to_datetime(end_time, utc=True)
         mask = (relation_kg['timestamp'] >= start_time) & (relation_kg['timestamp'] <= end_time)
-        time_relation_kg = relation_kg.loc[mask]
+        tkg = relation_kg.loc[mask]
+
+        head, relation, tail = torch.Tensor([int(x) for x in tkg['head'].values]).long(), torch.Tensor([int(x) for x in tkg['relation'].values]).long(), torch.Tensor([int(x) for x in tkg['tail'].values]).long()
+        #head, relation, tail = head.to(device), relation.to(device), tail.to(device)
+        temporal_kg = (head, relation, tail)
 
         for j in range(company_id):
             cur_data.append(df_map[j][i])
 
-        dataset.append((cur_data, time_relation_kg)) 
+        dataset.append((cur_data, temporal_kg)) 
 
     print("Skipped Tickers: ", skipped_ticker)
 

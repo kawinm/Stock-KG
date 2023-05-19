@@ -33,7 +33,7 @@ def get_unix_time(year, month, day):
     return int(time.mktime(date_time.timetuple()))
 
 
-def download_historical_data(constituent_dict, start_time, end_time):
+def download_historical_data(constituent_dict, start_time, end_time, index):
 
     num_companies = 1
     for company, details in constituent_dict.items():
@@ -45,6 +45,8 @@ def download_historical_data(constituent_dict, start_time, end_time):
         if company in not_found:
             continue
         
+        if index == 'nifty500':
+            company = company+'.NS'
 
         retrieve_url = "https://query1.finance.yahoo.com/v7/finance/download/" + company + \
                         "?period1=" + str(start_time) + "&period2=" + str(end_time) + \
@@ -63,15 +65,18 @@ def download_historical_data(constituent_dict, start_time, end_time):
         urllib.request.urlretrieve(retrieve_url, "data/"+ INDEX + "/" +save_file_name)
         print("Total Number of companies: ", num_companies)
 
-def download_dividend_history(constituent_dict, start_time, end_time):
+def download_dividend_history(constituent_dict, start_time, end_time, index):
 
     for company, details in constituent_dict.items():
 
-        print("Downloading Data of: " + company)
+        print("Downloading Dividend Data of: " + company)
 
         # Not found in yahoo finance
         if company in not_found or details["ticker"] in ticker_map:
             continue
+
+        if index == 'nifty500':
+            company = company+'.NS'
 
         retrieve_url = "https://query1.finance.yahoo.com/v7/finance/download/" + company + \
                         "?period1=" + str(start_time) + "&period2=" + str(end_time) + \
@@ -86,7 +91,7 @@ def download_dividend_history(constituent_dict, start_time, end_time):
 
         urllib.request.urlretrieve(retrieve_url, "data/dividend_history/"+save_file_name)
 
-def download_stocksplit_data(constituent_dict, start_time, end_time):
+def download_stocksplit_data(constituent_dict, start_time, end_time, index):
 
     for company, details in constituent_dict.items():
 
@@ -95,6 +100,9 @@ def download_stocksplit_data(constituent_dict, start_time, end_time):
         # Not found in yahoo finance
         if company in not_found or details["ticker"] in ticker_map:
             continue
+
+        if index == 'nifty500':
+            company = company+'.NS'
 
         retrieve_url = "https://query1.finance.yahoo.com/v7/finance/download/" + company + \
                         "?period1=" + str(start_time) + "&period2=" + str(end_time) + \
@@ -133,9 +141,9 @@ if __name__ == "__main__":
     #parser.add_argument('--window', type=int, default=10)
     #parser.add_argument('--test_size', type=float, default=0.2)
 
-    index = ['nasdaq100', 'sp500']
+    index = ['nasdaq100', 'sp500', 'nifty500']
 
-    for INDEX in index:
+    for INDEX in index[2:]:
         #INDEX = parser.parse_args().index
 
         start_time = get_unix_time(2003, 1, 1)
@@ -144,9 +152,9 @@ if __name__ == "__main__":
         constituent_dict = get_ticker_info()
         print("Number of companies in listing: ", len(constituent_dict.values()))
 
-        download_historical_data(constituent_dict, start_time, end_time)
-        download_dividend_history(constituent_dict, start_time, end_time)
-        download_stocksplit_data(constituent_dict, start_time, end_time)
+        download_historical_data(constituent_dict, start_time, end_time, INDEX)
+        download_dividend_history(constituent_dict, start_time, end_time, INDEX)
+        download_stocksplit_data(constituent_dict, start_time, end_time, INDEX)
 
         print("Total Companies in Nasdaq and Sp500: ", len(ticker_map.keys()))
 

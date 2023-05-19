@@ -37,7 +37,7 @@ from torchmetrics.functional import retrieval_normalized_dcg
 from random import randint
 import wandb
 
-GPU = 0
+GPU = 4
 LR = 0.0001
 BS = 128
 W = 20
@@ -283,6 +283,7 @@ def predict(loader, desc):
     for xb, company, yb, scale, move_target, tkg in loader:
         head, relation, tail = tkg
         head, relation, tail = head.to(device), relation.to(device), tail.to(device)
+
         tkg = (head, relation, tail)
         xb      = xb.to(device)
         #xb = torch.clamp(xb, min=0, max=1)
@@ -417,11 +418,6 @@ for tau in tau_choices:
     # ----------- Batching the data -----------
     def collate_fn(instn):
         tkg = instn[0][1]
-        head, relation, tail = torch.Tensor([int(x) for x in tkg['head'].values]).long(), torch.Tensor([int(x) for x in tkg['relation'].values]).long(), torch.Tensor([int(x) for x in tkg['tail'].values]).long()
-        #head, relation, tail = head.to(device), relation.to(device), tail.to(device)
-        temporal_kg = (head, relation, tail)
-
-
         instn = instn[0][0]
         
         # df: shape: Companies x W+1 x 5 (5 is the number of features)
@@ -450,7 +446,7 @@ for tau in tau_choices:
 
         movement = target >= 1
 
-        return (df, company, target, scale, movement.int(), temporal_kg)
+        return (df, company, target, scale, movement.int(), tkg)
 
 
     start_time = 0
@@ -462,7 +458,7 @@ for tau in tau_choices:
     print(len(dataset))
     for phase in range(1, 25):
         print("Phase: ", phase)
-        train_loader    = DataLoader(dataset[start_time:start_time+250], 1, shuffle=False, collate_fn=collate_fn, num_workers=1)
+        train_loader    = DataLoader(dataset[start_time:start_time+250], 1, shuffle=True, collate_fn=collate_fn, num_workers=1)
         val_loader      = DataLoader(dataset[start_time+250:start_time+300], 1, shuffle=False, collate_fn=collate_fn)
         test_loader     = DataLoader(dataset[start_time+300:start_time+400], 1, shuffle=False, collate_fn=collate_fn)
 
@@ -475,7 +471,7 @@ for tau in tau_choices:
         #if phase > 1:
         #    model.load_state_dict(torch.load("models/saved_models/best_model_"+INDEX+str(W)+"_"+str(T)+"_"+str(RUN)+".pt"))
 
-        opt_c = torch.optim.Adam(model.parameters(), lr = 1e-6, betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4)
+        opt_c = torch.optim.Adam(model.parameters(), lr = 1e-6, betas=(0.9, 0.999), eps=1e-08, weight_decay=0)
         #opt_c = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=0, nesterov=True)
 
         prev_val_loss = float("infinity")

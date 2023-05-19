@@ -7,6 +7,8 @@ from torch_geometric.nn import Sequential, GCNConv, JumpingKnowledge, Hypergraph
 from torch_geometric.nn import global_mean_pool
 
 from torchkge.models.translation import TorusEModel
+from torchkge.models.bilinear import ComplExModel, HolEModel
+from .tkge_models import *
 
 class PositionalEncoding(nn.Module):
 
@@ -37,7 +39,7 @@ class Transformer_Ranking(nn.Module):
     def __init__(self, W, T, D_MODEL, N_HEAD, ENC_LAYERS, DEC_LAYERS, D_FF, DROPOUT, USE_POS_ENCODING = False, USE_GRAPH = False, HYPER_GRAPH = True, USE_KG = True, NUM_NODES = 87):
         super().__init__()
 
-        SEC_EMB, n = 20, 0 # 1 For LSTM Embedding
+        SEC_EMB, n = 25, 0 # 1 For LSTM Embedding
         if USE_GRAPH:
             n += 1
         if USE_KG:
@@ -98,12 +100,25 @@ class Transformer_Ranking(nn.Module):
                         ])
                 
         self.use_kg = USE_KG
+
+        config = {
+            'entity_total': 6500,
+            'relation_total': 57,
+            'embedding_size': SEC_EMB,
+            'L1_flag': False,
+        }
         if self.use_kg:
-            self.relation_kge = TorusEModel(n_entities= 5500, n_relations = 60, emb_dim = SEC_EMB, dissimilarity_type='torus_L2')
+            #self.relation_kge = TorusEModel(n_entities= 5500, n_relations = 40, emb_dim = SEC_EMB, dissimilarity_type='torus_L2')
+            #self.relation_kge = HolEModel(n_entities= 5500, n_relations = 40, emb_dim = SEC_EMB)
+             
+            self.kge = TTransEModel(config)
         if self.use_kg:
-            self.temporal_kge = TorusEModel(n_entities= 5500, n_relations = 60, emb_dim = SEC_EMB, dissimilarity_type='torus_L2')
+            pass
+            #self.temporal_kge = TorusEModel(n_entities= 5500, n_relations = 50, emb_dim = SEC_EMB, dissimilarity_type='torus_L2')
+            #self.temporal_kge = HolEModel(n_entities= 5500, n_relations = 40, emb_dim = SEC_EMB) 
         self.num_nodes = NUM_NODES
 
+  
     def forward(self, xb, yb=None, graph=None, kg=None, tkg=None):
         if self.is_pos:
             xb = self.pos_enc_x(xb)
@@ -139,23 +154,26 @@ class Transformer_Ranking(nn.Module):
         
         kg_loss = torch.zeros(1)
         if self.use_kg:
-            kg_loss = self.relation_kge.scoring_function(kg[0], kg[2], kg[1]).mean()
-            kg_emb, rel_emb = self.relation_kge.get_embeddings()
-            kg_emb = kg_emb[kg[3].long()]
+            #kg_loss = self.relation_kge.scoring_function(kg[0], kg[2], kg[1]).mean()
+            #kg_emb, rel_emb = self.relation_kge.get_embeddings()
+            #kg_emb = kg_emb[kg[3].long()]
+
+            kg_loss += self.kge(kg[0], kg[2], kg[1])
+            kg_emb = self.kge.ent_embeddings.weight[kg[3].long()]
             kg_emb = kg_emb.unsqueeze(dim=0)
             x = torch.cat((x, kg_emb), dim=2)
 
-            self.relation_kge.normalize_parameters()
-        if self.use_kg:
-            head, relation, tail = torch.cat((kg[0], tkg[0])), torch.cat((kg[1], tkg[1])), torch.cat((kg[2], tkg[2]))
-            kg_loss += self.temporal_kge.scoring_function(head, tail, relation).mean()
-            kg_loss /= 2
-            kg_emb, rel_emb = self.temporal_kge.get_embeddings()
-            kg_emb = kg_emb[kg[3].long()]
-            kg_emb = kg_emb.unsqueeze(dim=0)
-            x = torch.cat((x, kg_emb), dim=2)
+            #self.relation_kge.normalize_parameters()
+        #if self.use_kg:
+        #    #head, relation, tail = torch.cat((kg[0], tkg[0])), torch.cat((kg[1], tkg[1])), torch.cat((kg[2], tkg[2]))
+        #    kg_loss += self.temporal_kge.scoring_function(tkg[0], tkg[2], tkg[1]).mean()
+        #    kg_loss /= 2
+        #    kg_emb, rel_emb = self.temporal_kge.get_embeddings()
+        #    kg_emb = kg_emb[kg[3].long()]
+        #    kg_emb = kg_emb.unsqueeze(dim=0)
+        #    x = torch.cat((x, kg_emb), dim=2)
 
-            self.temporal_kge.normalize_parameters()
+        #    self.temporal_kge.normalize_parameters()
 
         x = x.view(-1)
         price_pred = self.pred(x)
