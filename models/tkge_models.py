@@ -7,7 +7,6 @@ import torch.autograd as autograd
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from LSTMLinear import LSTMModel
 from sklearn.metrics.pairwise import pairwise_distances, cosine_similarity
 
 
@@ -23,8 +22,8 @@ class TTransEModel(nn.Module):
         rel_weight = torch.Tensor(self.relation_total, self.embedding_size)
 
         # Use xavier initialization method to initialize embeddings of entities and relations
-        nn.init.xavier_uniform(ent_weight)
-        nn.init.xavier_uniform(rel_weight)
+        nn.init.xavier_uniform_(ent_weight)
+        nn.init.xavier_uniform_(rel_weight)
 
 
         self.ent_embeddings = nn.Embedding(self.entity_total, self.embedding_size)
@@ -54,9 +53,9 @@ class TTransEModel(nn.Module):
         pos_tem_e = self.year_embeddings(pos_tem[:, 0]) + self.month_embeddings(pos_tem[:, 1]) + \
                     self.day_embeddings(pos_tem[:, 2]) + self.hour_embeddings(pos_tem[:, 3]) + \
                     self.minutes_embeddings(pos_tem[:, 4]) + self.sec_embeddings(pos_tem[:, 5])
-
-        neg_h = torch.randint_like(pos_h, low=1, high=self.entity_total)
-        neg_t = torch.randint_like(pos_t, low=1, high=self.relation_total)
+ 
+        neg_h = torch.randint_like(pos_h, low=1, high=self.entity_total).to(pos_h.device)
+        neg_t = torch.randint_like(pos_t, low=1, high=self.relation_total).to(pos_t.device)
 
         neg_h_e = self.ent_embeddings(neg_h)
         neg_t_e = self.ent_embeddings(neg_t)
@@ -68,23 +67,20 @@ class TTransEModel(nn.Module):
         else:
             pos = torch.sum((pos_h_e + pos_r_e + pos_tem_e - pos_t_e) ** 2, 1)
             neg = torch.sum((neg_h_e + neg_r_e + pos_tem_e - neg_t_e) ** 2, 1)
-        return torch.mean(pos - neg)
 
+        #print(pos, neg)
+        loss = torch.mean(pos - neg)
+        #print(loss.shape)
+        return loss
 
 """
-
 class TADistmultModel(nn.Module):
     def __init__(self, config):
         super(TADistmultModel, self).__init__()
-        self.learning_rate = config.learning_rate
-        self.early_stopping_round = config.early_stopping_round
-        self.L1_flag = config.L1_flag
-        self.filter = config.filter
-        self.embedding_size = config.embedding_size
-        self.entity_total = config.entity_total
-        self.relation_total = config.relation_total
-        self.tem_total = config.tem_total # 32
-        self.batch_size = config.batch_size
+        self.L1_flag = config['L1_flag']
+        self.embedding_size = config['embedding_size']
+        self.entity_total = config['entity_total']
+        self.relation_total = config['relation_total']
 
         self.criterion = nn.Softplus()
         torch.nn.BCELoss()
@@ -92,26 +88,33 @@ class TADistmultModel(nn.Module):
         self.dropout = nn.Dropout(config.dropout)
         self.lstm = LSTMModel(self.embedding_size, n_layer=1)
 
+        self.year_embeddings    = nn.Embedding(24, self.embedding_size, padding_idx=0)
+        self.month_embeddings   = nn.Embedding(13, self.embedding_size, padding_idx=0)
+        self.day_embeddings     = nn.Embedding(32, self.embedding_size, padding_idx=0)
+        self.hour_embeddings    = nn.Embedding(25, self.embedding_size, padding_idx=0)
+        self.minutes_embeddings = nn.Embedding(61, self.embedding_size, padding_idx=0)
+        self.sec_embeddings     = nn.Embedding(61, self.embedding_size, padding_idx=0)
+
         ent_weight = floatTensor(self.entity_total, self.embedding_size)
         rel_weight = floatTensor(self.relation_total, self.embedding_size)
-        tem_weight = floatTensor(self.tem_total, self.embedding_size)
+        #tem_weight = floatTensor(self.tem_total, self.embedding_size)
         # Use xavier initialization method to initialize embeddings of entities and relations
         nn.init.xavier_uniform(ent_weight)
         nn.init.xavier_uniform(rel_weight)
-        nn.init.xavier_uniform(tem_weight)
+        #nn.init.xavier_uniform(tem_weight)
         self.ent_embeddings = nn.Embedding(self.entity_total, self.embedding_size)
         self.rel_embeddings = nn.Embedding(self.relation_total, self.embedding_size)
-        self.tem_embeddings = nn.Embedding(self.tem_total, self.embedding_size)
+        #self.tem_embeddings = nn.Embedding(self.tem_total, self.embedding_size)
         self.ent_embeddings.weight = nn.Parameter(ent_weight)
         self.rel_embeddings.weight = nn.Parameter(rel_weight)
-        self.tem_embeddings.weight = nn.Parameter(tem_weight)
+        #self.tem_embeddings.weight = nn.Parameter(tem_weight)
 
         normalize_entity_emb = F.normalize(self.ent_embeddings.weight.data, p=2, dim=1)
         normalize_relation_emb = F.normalize(self.rel_embeddings.weight.data, p=2, dim=1)
-        normalize_temporal_emb = F.normalize(self.tem_embeddings.weight.data, p=2, dim=1)
+        #normalize_temporal_emb = F.normalize(self.tem_embeddings.weight.data, p=2, dim=1)
         self.ent_embeddings.weight.data = normalize_entity_emb
         self.rel_embeddings.weight.data = normalize_relation_emb
-        self.tem_embeddings.weight.data = normalize_temporal_emb
+        #self.tem_embeddings.weight.data = normalize_temporal_emb
 
     def scoring(self, h, t, r):
         return torch.sum(h * t * r, 1, False)
@@ -148,7 +151,7 @@ class TADistmultModel(nn.Module):
         token_e = token_e.view(bs, tem_len, self.embedding_size)
         seq_e = torch.cat((r_e, token_e), 1)
 
-        hidden_tem = self.lstm(seq_e)
+        hidden_tem, y = self.lstm(seq_e)
         hidden_tem = hidden_tem[0, :, :]
         rseq_e = hidden_tem
 

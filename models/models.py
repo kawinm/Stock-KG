@@ -47,16 +47,16 @@ class Transformer_Ranking(nn.Module):
 
         self.embeddings = nn.Embedding(105, 10)
 
-        self.pos_enc_x = PositionalEncoding(d_model=D_MODEL, dropout=DROPOUT, max_len=W)
-        self.pos_enc_y = PositionalEncoding(d_model=D_MODEL, dropout=DROPOUT, max_len=T)
+        #self.pos_enc_x = PositionalEncoding(d_model=D_MODEL, dropout=DROPOUT, max_len=W)
+        #self.pos_enc_y = PositionalEncoding(d_model=D_MODEL, dropout=DROPOUT, max_len=T)
 
         self.lstm_encoder = nn.LSTM(input_size = 5, hidden_size = D_MODEL, num_layers = ENC_LAYERS, batch_first = True, bidirectional = False)
 
         #encoder_layer = nn.TransformerEncoderLayer(d_model=D_MODEL, nhead=N_HEAD, dim_feedforward=D_FF, batch_first=True )
         #self.transformer_encoder_first = nn.TransformerEncoder(encoder_layer, num_layers=ENC_LAYERS)
         
-        encoder_layer = nn.TransformerEncoderLayer(d_model=D_MODEL, nhead=N_HEAD, dim_feedforward=D_FF, batch_first=True )
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=ENC_LAYERS)
+        #encoder_layer = nn.TransformerEncoderLayer(d_model=D_MODEL, nhead=N_HEAD, dim_feedforward=D_FF, batch_first=True )
+        #self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=ENC_LAYERS)
 
         self.fc1 = nn.Linear(D_MODEL, D_FF)
         self.fc2 = nn.Linear(D_FF, D_MODEL)
@@ -104,7 +104,7 @@ class Transformer_Ranking(nn.Module):
         config = {
             'entity_total': 6500,
             'relation_total': 57,
-            'embedding_size': SEC_EMB,
+            'embedding_size': SEC_EMB*2,
             'L1_flag': False,
         }
         if self.use_kg:
@@ -119,15 +119,19 @@ class Transformer_Ranking(nn.Module):
         self.num_nodes = NUM_NODES
 
   
-    def forward(self, xb, yb=None, graph=None, kg=None, tkg=None):
-        if self.is_pos:
-            xb = self.pos_enc_x(xb)
-            yb = self.pos_enc_y(yb)
+    def forward(self, xb, yb=None, graph=None, kg=None, tkg=None, learn_kg = False):
+
+        if learn_kg:
+            return self.kge(tkg[0], tkg[2], tkg[1], tkg[3])
+        #if self.is_pos:
+        #    xb = self.pos_enc_x(xb)
+        #    yb = self.pos_enc_y(yb)
         #yb = torch.cat((yb, emb2), dim=2)
 
         # # Experiment 1
         x, y = self.lstm_encoder(xb)
         xb = y[0][-1, :, :].unsqueeze(dim=0)          # x: [B, C, W*F
+        x = xb
         
         # # Experiment 2
         #W,F = xb.shape[1], xb.shape[2]
@@ -139,7 +143,7 @@ class Transformer_Ranking(nn.Module):
 
         #xb = xb[:, :, 3].squeeze().unsqueeze(dim=0)
         #x = self.transformer_encoder(xb)               # x: [B, C, W*F]
-        x = self.fc2(F.dropout(F.leaky_relu(self.fc1(xb)), p=0.2))
+        #x = self.fc2(F.dropout(F.leaky_relu(self.fc1(xb)), p=0.2))
         #x = x + xb
         #x = torch.cat((x, emb2), dim=2)
 
@@ -152,14 +156,13 @@ class Transformer_Ranking(nn.Module):
             #g_emb = g_emb.repeat(1, self.time_steps, 1)        
             x = torch.cat((x, g_emb), dim=1)
         
-        kg_loss = torch.zeros(1)
         if self.use_kg:
             #kg_loss = self.relation_kge.scoring_function(kg[0], kg[2], kg[1]).mean()
             #kg_emb, rel_emb = self.relation_kge.get_embeddings()
             #kg_emb = kg_emb[kg[3].long()]
 
-            kg_loss += self.kge(kg[0], kg[2], kg[1])
-            kg_emb = self.kge.ent_embeddings.weight[kg[3].long()]
+            kg_loss = self.kge(tkg[0], tkg[2], tkg[1], tkg[3])
+            kg_emb = self.kge.ent_embeddings.weight[tkg[4].long()]
             kg_emb = kg_emb.unsqueeze(dim=0)
             x = torch.cat((x, kg_emb), dim=2)
 
@@ -176,14 +179,15 @@ class Transformer_Ranking(nn.Module):
         #    self.temporal_kge.normalize_parameters()
 
         x = x.view(-1)
+        #print(x.shape)
         price_pred = self.pred(x)
         price_pred = F.dropout(F.leaky_relu(price_pred), 0.2)
         price_pred = self.pred2(price_pred)
         #price_pred = F.relu(price_pred)
 
         hold_pred = price_pred #self.hold_pred(x.mean(dim=1)).squeeze(dim=0)
-            # x = F.relu(x)
-            # x = self.pred2(x)
+        # x = F.relu(x)
+        # x = self.pred2(x)
         return price_pred, kg_loss, hold_pred
 
 

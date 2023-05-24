@@ -31,7 +31,15 @@ def window_scale_divison(df, W, T, company_to_id, ticker):
                         for T in [1, 5, 20]
                     ], 
                     df['Close'][i+W:i+W+1],
-                    df.iloc[i+W:i+W+1, 7:].values
+                    df.iloc[i+W:i+W+1, 7:].values,
+                    [
+                        (df['Low'][i+W+T:i+W+T+1]).values
+                        for T in [0, 1, 5, 20]
+                    ], 
+                    [
+                        (df['High'][i+W+T:i+W+T+1]).values
+                        for T in [0, 1, 5, 20]
+                    ]
                 ) 
                 for i in range(df.shape[0]-W-T)
             ]
@@ -70,7 +78,7 @@ def create_batch_dataset(INDEX, W, T=20, problem='value', fast = False):
             if df.shape[0] > 2800:
                 df = df.iloc[-2800:]
         
-
+            """
             annual_df = pd.read_csv("kg/fundamentals/macrotrends/combined-preprocessed/"+ticker+"-annual.csv")
             quarterly_df = pd.read_csv("kg/fundamentals/macrotrends/combined-preprocessed/"+ticker+"-quarterly.csv")
 
@@ -90,6 +98,7 @@ def create_batch_dataset(INDEX, W, T=20, problem='value', fast = False):
             # Fill NaN values with previous values
             df = df.fillna(method='ffill')
             print(df.shape)
+            """
 
             list_df = [(
                     df.iloc[i+W:i+W+1, 7:].shape
@@ -99,24 +108,43 @@ def create_batch_dataset(INDEX, W, T=20, problem='value', fast = False):
 
             list_df = window_scale_divison(df, W, T, company_to_id, ticker)
 
-            df_map[company_to_id[ticker]] = list_df 
+            df_map[company_to_id[ticker]] = list_df
+  
     
-    kg_file_name = './kg/temporal_events/temporal_kg.pkl'
+    kg_file_name = './kg/tkg_create/temporal_kg.pkl'
     with open(kg_file_name, 'rb') as f:
         pkl_file = pickle.load(f)
         relation_kg = pkl_file['temporal_kg']
 
     for i in range(len(list_df)):
         cur_data = []
-        start_time, end_time = list_df[i][6].iloc[0], list_df[i][6].iloc[-1]
+        start_time, end_time = list_df[i][6].iloc[-1], list_df[i][6].iloc[-1] 
         start_time = pd.to_datetime(start_time, utc=True)
-        end_time = pd.to_datetime(end_time, utc=True)
-        mask = (relation_kg['timestamp'] >= start_time) & (relation_kg['timestamp'] <= end_time)
+        end_time = pd.to_datetime(end_time, utc=True) + pd.offsets.Day(1)
+        start_time.tz_localize(None)
+        end_time.tz_localize(None)
+        relation_kg['expiry_ts'] = pd.to_datetime(relation_kg['expiry_ts'], utc=True)
+        relation_kg['timestamp'] = pd.to_datetime(relation_kg['timestamp'], utc=True)
+        non_temporal_time = pd.to_datetime('1970-01-01', utc=True)
+        mask = (relation_kg['timestamp'] >= start_time) & (relation_kg['timestamp'] < end_time) & (relation_kg['expiry_ts'] >= end_time) | (relation_kg['timestamp'] == non_temporal_time)
         tkg = relation_kg.loc[mask]
 
         head, relation, tail = torch.Tensor([int(x) for x in tkg['head'].values]).long(), torch.Tensor([int(x) for x in tkg['relation'].values]).long(), torch.Tensor([int(x) for x in tkg['tail'].values]).long()
         #head, relation, tail = head.to(device), relation.to(device), tail.to(device)
-        temporal_kg = (head, relation, tail)
+        #print(start_time, tkg)
+
+        start_ts_years = torch.Tensor(tkg['timestamp'].dt.year.values).long() - 2000
+        start_ts_years[start_ts_years <= 0] = 0
+        start_ts_months = torch.Tensor(tkg['timestamp'].dt.month.values).long()
+        start_ts_days = torch.Tensor(tkg['timestamp'].dt.day.values).long()
+        start_ts_hours = torch.Tensor(tkg['timestamp'].dt.hour.values).long()
+        start_ts_minutes = torch.Tensor(tkg['timestamp'].dt.minute.values).long()
+        start_ts_seconds = torch.Tensor(tkg['timestamp'].dt.second.values).long()
+
+        ts = torch.stack([start_ts_years, start_ts_months, start_ts_days, start_ts_hours, start_ts_minutes, start_ts_seconds], dim=1)
+        
+        #print(ts, ts.shape)
+        temporal_kg = (head, relation, tail, ts)
 
         for j in range(company_id):
             cur_data.append(df_map[j][i])
@@ -241,6 +269,6 @@ if __name__ == "__main__":
     #parser.add_argument('--test_size', type=float, default=0.2)
 
     #create_dataset("nasdaq100", 50, 5)
-    d, s, c, g, h = create_batch_dataset("sp500", 50, 5)
+    d, s, c, g, h = create_batch_dataset("nasdaq100", 50, 5)
     print(len(d[0]), len(d[0][0]), d[0][0][0])
 
