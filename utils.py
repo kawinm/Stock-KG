@@ -19,10 +19,10 @@ def window_scale_divison(df, W, T, company_to_id, ticker):
     """
     SMOOTH = 0.00001
     list_df = [(
-                    (df['Open'][i+1:i+W+1] / df['Open'][i:i+1].values).values, 
-                    (df['High'][i+1:i+W+1] / df['High'][i:i+1].values).values,           
-                    (df['Low'][i+1:i+W+1] / df['Low'][i:i+1].values).values, 
-                    (df['Close'][i+1:i+W+1] / df['Close'][i:i+1].values).values,           
+                    (df['Open'][i+1:i+W+1] / df['Open'][i:i+1].values+SMOOTH).values, 
+                    (df['High'][i+1:i+W+1] / df['High'][i:i+1].values+SMOOTH).values,           
+                    (df['Low'][i+1:i+W+1] / df['Low'][i:i+1].values+SMOOTH).values, 
+                    (df['Close'][i+1:i+W+1] / df['Close'][i:i+1].values+SMOOTH).values,           
                     (df['Volume'][i+1:i+W+1] / (df['Volume'][i:i+1].values+SMOOTH)).values, 
                     company_to_id[ticker],  
                     df[i+1:i+W+1]['Date'], 
@@ -63,6 +63,8 @@ def create_batch_dataset(INDEX, W, T=20, problem='value', fast = False):
             print(filename)
             ticker, name = filename.split("-")
             df = pd.read_csv(f)
+
+            df = df.dropna()
 
             if df.shape[0] <= 2800:    # 13 years
                 print("Skipping file: Less Training-Testing samples [{0} samples]".format(df.shape[0]))
@@ -109,9 +111,10 @@ def create_batch_dataset(INDEX, W, T=20, problem='value', fast = False):
             list_df = window_scale_divison(df, W, T, company_to_id, ticker)
 
             df_map[company_to_id[ticker]] = list_df
-  
     
     kg_file_name = './kg/tkg_create/temporal_kg.pkl'
+    if INDEX == 'nifty500':
+        kg_file_name = './kg/tkg_create/temporal_kg_nifty.pkl'
     with open(kg_file_name, 'rb') as f:
         pkl_file = pickle.load(f)
         relation_kg = pkl_file['temporal_kg']
@@ -136,14 +139,19 @@ def create_batch_dataset(INDEX, W, T=20, problem='value', fast = False):
         start_ts_years = torch.Tensor(tkg['timestamp'].dt.year.values).long() - 2000
         start_ts_years[start_ts_years <= 0] = 0
         start_ts_months = torch.Tensor(tkg['timestamp'].dt.month.values).long()
+        start_ts_months[start_ts_years <= 0] = 0
         start_ts_days = torch.Tensor(tkg['timestamp'].dt.day.values).long()
+        start_ts_days[start_ts_years <= 0] = 0
         start_ts_hours = torch.Tensor(tkg['timestamp'].dt.hour.values).long()
+        start_ts_hours[start_ts_years <= 0] = 0
         start_ts_minutes = torch.Tensor(tkg['timestamp'].dt.minute.values).long()
+        start_ts_minutes[start_ts_years <= 0] = 0
         start_ts_seconds = torch.Tensor(tkg['timestamp'].dt.second.values).long()
+        start_ts_seconds[start_ts_years <= 0] = 0
 
         ts = torch.stack([start_ts_years, start_ts_months, start_ts_days, start_ts_hours, start_ts_minutes, start_ts_seconds], dim=1)
         
-        #print(ts, ts.shape)
+        #print(tkg['timestamp'], ts, ts.shape)
         temporal_kg = (head, relation, tail, ts)
 
         for j in range(company_id):

@@ -3,6 +3,16 @@ logs/
 models/saved_models/
 wandb/
 plots/
+entry/
+pickle/
+results/
+**.pkl
+**.pyc
+**.pt 
+**.out
+**.csv
+**.txt
+**.json
 kg/temporal_events/entire_kg.pkl
 kg/temporal_events/temporal_events_1.pkl
 kg/temporal_events/temporal_kg.pkl
